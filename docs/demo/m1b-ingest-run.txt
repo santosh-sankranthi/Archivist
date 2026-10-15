@@ -1,0 +1,60 @@
+# Archivist ingest v0 — flask full-history run
+# 2026-10-15 18:37 UTC  |  cmd: .venv/bin/python scripts/ingest.py
+
+ingest: repo=/home/openclaw/projects/archivist/data/flask
+ingest: graph=repo:flask falkordb=127.0.0.1:6379 
+run_id=20261015T183756Z-0860bf3d
+[1/5] walking tree
+      231 text files
+      symbols=1622 imports=675 parse_failures=0
+[2/5] reading git history
+      5562 commits · 874 authors · 9489 file changes
+[3/5] writing graph
+[4/5] pruning stale nodes
+[5/5] done in 30.4s
+
+Archivist ingest v0 — /home/openclaw/projects/archivist/data/flask
+head d086db856be1 · graph 'repo:flask' · run 20261015T183756Z-0860bf3d · 30.37s 
+· 231 files · parse failures 0
+Graph counts (total)           
+┏━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ kind ┃ label / type ┃ count ┃
+┡━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━┩
+│ node │ Author       │   874 │
+│ node │ Commit       │  5562 │
+│ node │ File         │   643 │
+│ node │ Module       │   145 │
+│ node │ Repo         │     1 │
+│ node │ Symbol       │  1580 │
+│ edge │ AUTHORED     │  5562 │
+│ edge │ DEFINES      │  1580 │
+│ edge │ HEAD         │     1 │
+│ edge │ IMPORTS      │   675 │
+│ edge │ MODIFIED     │  9489 │
+│ edge │ PARENT       │  7294 │
+└──────┴──────────────┴───────┘
+Cypher smoke tests
+  · top authors by commits
+      David Lord  ·  1861
+      Armin Ronacher  ·  1191
+      Markus Unterwaditzer  ·  274
+      Ron DuPlain  ·  122
+      Kenneth Reitz  ·  116
+  · most-touched files (with churn)
+      flask/app.py  ·  355  ·  8823.0
+      CHANGES.rst  ·  344  ·  5128.0
+      CHANGES  ·  318  ·  1912.0
+      flask/helpers.py  ·  205  ·  4091.0
+      docs/quickstart.rst  ·  185  ·  3719.0
+  · symbol hotspots (files by defs)
+      tests/test_basic.py  ·  256
+      tests/test_blueprints.py  ·  168
+      tests/test_templating.py  ·  84
+      tests/test_cli.py  ·  66
+      tests/test_views.py  ·  66
+  · 3-hop: who touches importers of 'flask'
+      David Lord  ·  43
+      David Baumgold  ·  31
+      Markus Unterwaditzer  ·  18
+      Parkayun  ·  13
+      Christian Stade-Schuldt  ·  12

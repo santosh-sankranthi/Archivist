@@ -1,0 +1,190 @@
+"""FalkorDB write layer for ingest v0.
+
+Every phase is an idempotent, UNWIND-batched MERGE over rows, keyed on stable
+identities (paths, shas, emails, file+qualname) — re-ingest converges instead
+of duplicating. A per-run stamp (``run_id``) lets us prune nodes that no
+longer appear in the repo (or its history).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+from falkordb import FalkorDB
+
+_BATCH = 500
+
+
+class GraphWriter:
+    """Thin wrapper around one FalkorDB graph with ingest-specific writes."""
+
+    def __init__(
+        self, host: str = "127.0.0.1", port: int = 6379, graph: str = "repo:flask"
+    ):
+        self.graph_name = graph
+        self._db = FalkorDB(host=host, port=port)
+        self.graph = self._db.select_graph(graph)
+
+    # -- low level ----------------------------------------------------------
+
+    def _run(self, query: str, params: dict | None = None) -> None:
+        self.graph.query(query, params or {})
+
+    def _batched(
+        self, query: str, rows: Iterable[dict], extra: dict | None = None
+    ) -> None:
+        """Execute ``query`` once per chunk of ``rows`` (UNWIND $rows AS row)."""
+        rows = list(rows)
+        for start in range(0, len(rows), _BATCH):
+            self.graph.query(
+                query, {"rows": rows[start : start + _BATCH], **(extra or {})}
+            )
+
+    def delete(self) -> None:
+        """Drop the whole graph. Tolerates an absent graph."""
+        try:
+            self.graph.delete()
+        except Exception:
+            if self.graph_name in self._db.list_graphs():
+                raise
+
+    def stats(self) -> dict[str, dict[str, int]]:
+        nodes = self.graph.query(
+            "MATCH (n) RETURN labels(n)[0] AS label, count(*) AS cnt ORDER BY label"
+        ).result_set
+        edges = self.graph.query(
+            "MATCH ()-[e]->() RETURN type(e) AS type, count(*) AS cnt ORDER BY type"
+        ).result_set
+        return {
+            "nodes": {row[0]: row[1] for row in nodes},
+            "edges": {row[0]: row[1] for row in edges},
+        }
+
+    def smoke(self, query: str) -> list[list]:
+        return self.graph.query(query).result_set
+
+    # -- write phases (order matters: commits before HEAD edge, files before
+    #    symbols/modifications so stubs are only created for history-only
+    #    paths) --------------------------------------------------------------
+
+    def write_repo(
+        self, *, name: str, path: str, head: str, updated_at: int, run_id: str
+    ) -> None:
+        self._run(
+            """
+            MERGE (r:Repo {name: $name})
+            SET r.path = $path, r.head = $head, r.updated_at = $updated_at, r.run_id = $run_id
+            WITH r
+            MERGE (c:Commit {sha: $head})
+            MERGE (r)-[:HEAD]->(c)
+            """,
+            {
+                "name": name,
+                "path": path,
+                "head": head,
+                "updated_at": updated_at,
+                "run_id": run_id,
+            },
+        )
+
+    def write_files(self, rows: Iterable[dict], run_id: str) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MERGE (f:File {path: row.path})
+            SET f.lang = row.lang, f.loc = row.loc, f.run_id = $run_id
+            """,
+            rows,
+            {"run_id": run_id},
+        )
+
+    def write_authors(self, rows: Iterable[dict]) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MERGE (a:Author {email: row.email})
+            SET a.name = row.name, a.commits_count = row.commits_count
+            """,
+            rows,
+        )
+
+    def write_commits(self, rows: Iterable[dict], run_id: str) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MERGE (c:Commit {sha: row.sha})
+            SET c.author_name = row.author_name, c.ts = row.ts,
+                c.summary = row.summary, c.message = row.message, c.run_id = $run_id
+            MERGE (a:Author {email: row.author_email})
+            SET a.name = row.author_name
+            MERGE (a)-[:AUTHORED]->(c)
+            """,
+            rows,
+            {"run_id": run_id},
+        )
+
+    def write_parents(self, rows: Iterable[dict]) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MERGE (c:Commit {sha: row.sha})
+            MERGE (p:Commit {sha: row.parent})
+            MERGE (c)-[:PARENT]->(p)
+            """,
+            rows,
+        )
+
+    def write_modifications(self, rows: Iterable[dict], run_id: str) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MATCH (c:Commit {sha: row.sha})
+            MERGE (f:File {path: row.path})
+            SET f.run_id = $run_id
+            MERGE (c)-[m:MODIFIED]->(f)
+            SET m.added = row.added, m.removed = row.removed
+            """,
+            rows,
+            {"run_id": run_id},
+        )
+
+    def write_symbols(self, rows: Iterable[dict], run_id: str) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MERGE (f:File {path: row.path})
+            SET f.run_id = $run_id
+            MERGE (s:Symbol {file: row.path, qualname: row.qualname})
+            SET s.name = row.name, s.kind = row.kind, s.lineno = row.lineno,
+                s.run_id = $run_id
+            MERGE (f)-[:DEFINES]->(s)
+            """,
+            rows,
+            {"run_id": run_id},
+        )
+
+    def write_imports(self, rows: Iterable[dict], run_id: str) -> None:
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MERGE (f:File {path: row.path})
+            SET f.run_id = $run_id
+            MERGE (m:Module {name: row.module})
+            SET m.run_id = $run_id
+            MERGE (f)-[i:IMPORTS {line: row.line}]->(m)
+            """,
+            rows,
+            {"run_id": run_id},
+        )
+
+    def prune(self, run_id: str) -> None:
+        """Delete File/Symbol/Module nodes not produced by the current run.
+
+        Commit and Author nodes are append-only: git history never shrinks on
+        a normal re-ingest, so they carry no run stamp.
+        """
+        for label in ("File", "Symbol", "Module"):
+            self._run(
+                f"MATCH (n:{label}) WHERE n.run_id IS NULL OR n.run_id <> $run_id DELETE n",
+                {"run_id": run_id},
+            )

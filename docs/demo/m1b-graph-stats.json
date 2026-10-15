@@ -1,0 +1,125 @@
+{
+  "stats": {
+    "graph": "repo:flask",
+    "repo": "/home/openclaw/projects/archivist/data/flask",
+    "head": "d086db856be187255b8ec61ef409357393020f32",
+    "run_id": "20261015T184038Z-d0ab2285",
+    "duration_s": 33.64,
+    "files": 231,
+    "parse_failures": 0,
+    "shallow": false,
+    "counts": {
+      "nodes": {
+        "Author": 874,
+        "Commit": 5562,
+        "File": 643,
+        "Module": 145,
+        "Repo": 1,
+        "Symbol": 1580
+      },
+      "edges": {
+        "AUTHORED": 5562,
+        "DEFINES": 1580,
+        "HEAD": 1,
+        "IMPORTS": 675,
+        "MODIFIED": 9489,
+        "PARENT": 7294
+      }
+    }
+  },
+  "smoke": {
+    "top authors by commits": [
+      [
+        "David Lord",
+        1861
+      ],
+      [
+        "Armin Ronacher",
+        1191
+      ],
+      [
+        "Markus Unterwaditzer",
+        274
+      ],
+      [
+        "Ron DuPlain",
+        122
+      ],
+      [
+        "Kenneth Reitz",
+        116
+      ]
+    ],
+    "most-touched files (with churn)": [
+      [
+        "flask/app.py",
+        355,
+        8823.0
+      ],
+      [
+        "CHANGES.rst",
+        344,
+        5128.0
+      ],
+      [
+        "CHANGES",
+        318,
+        1912.0
+      ],
+      [
+        "flask/helpers.py",
+        205,
+        4091.0
+      ],
+      [
+        "docs/quickstart.rst",
+        185,
+        3719.0
+      ]
+    ],
+    "symbol hotspots (files by defs)": [
+      [
+        "tests/test_basic.py",
+        256
+      ],
+      [
+        "tests/test_blueprints.py",
+        168
+      ],
+      [
+        "tests/test_templating.py",
+        84
+      ],
+      [
+        "tests/test_cli.py",
+        66
+      ],
+      [
+        "tests/test_views.py",
+        66
+      ]
+    ],
+    "3-hop: who touches importers of 'flask'": [
+      [
+        "David Lord",
+        43
+      ],
+      [
+        "David Baumgold",
+        31
+      ],
+      [
+        "Markus Unterwaditzer",
+        18
+      ],
+      [
+        "Parkayun",
+        13
+      ],
+      [
+        "Christian Stade-Schuldt",
+        12
+      ]
+    ]
+  }
+}
