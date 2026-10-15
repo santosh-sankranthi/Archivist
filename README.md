@@ -49,7 +49,10 @@ python scripts/ask.py "why is blueprints.py careful?" --json   # machine-readabl
 ```
 
 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` are accepted as
-fallbacks; keys never enter the repo. A mechanics transcript generated without
-a key lives in `docs/demo/m2b-agent-loop.txt` (scripted calls, real queries).
+fallbacks; keys never enter the repo. Transient endpoint failures (429/5xx,
+timeouts) are retried with backoff; anything that still fails is recorded on
+the answer's trace instead of crashing the run. A mechanics transcript
+generated without a key lives in `docs/demo/m2b-agent-loop.txt` (scripted
+calls, real queries).
 
 > Built during the Graph Hacks event window (Oct 15–18, 2026).

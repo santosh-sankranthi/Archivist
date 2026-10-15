@@ -190,3 +190,64 @@ def test_transport_error_lands_on_answer(chain_repo, falkordb_or_skip, temp_grap
     assert answer.error and "401" in answer.error
     assert answer.partial is True
     assert answer.text.startswith("(LLM failure:")
+
+
+def test_tool_crash_feeds_back_and_keeps_trace(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+
+    def flaky(**kwargs):
+        repo._q("RETURN 1 AS x")  # executed before the crash — must stay audited
+        raise RuntimeError("db hiccup")
+
+    repo.callers = flaky  # type: ignore[method-assign]
+    llm = ScriptedLLM(
+        [tool_call("callers", {"symbol": "helper"}, call_id="a"), text_response("ok")]
+    )
+    answer = Agent(repo, llm).ask("q")
+
+    step = answer.steps[0]
+    assert step["status"] == "error" and "db hiccup" in step["error"]
+    assert isinstance(step["ms"], int) and step["ms"] >= 0
+    assert any(
+        q["tool"] == "callers" and "RETURN 1" in q["cypher"] for q in answer.queries
+    ), "queries executed before the crash must survive on the Answer"
+
+
+def test_empty_model_output_is_flagged(chain_repo, falkordb_or_skip, temp_graph):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    llm = ScriptedLLM([LLMResponse(content="   ")])
+    answer = Agent(repo, llm).ask("q")
+    assert answer.partial is True
+    assert answer.error == "empty response from model"
+    assert answer.text == "(no answer produced)"
+
+
+def test_negative_max_steps_is_clamped(chain_repo, falkordb_or_skip, temp_graph):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    llm = ScriptedLLM([text_response("fine")])
+    answer = Agent(repo, llm, max_steps=-1).ask("q")
+    assert answer.text == "fine"  # not an empty, call-less "success"
+    assert len(llm.requests) == 1
+
+
+def test_large_payloads_are_truncated_for_context(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    llm = ScriptedLLM(
+        [
+            tool_call(
+                "query",
+                {"cypher": "UNWIND range(1, 60) AS i RETURN i AS n"},
+                call_id="a",
+            ),
+            text_response("done"),
+        ]
+    )
+    answer = Agent(repo, llm).ask("q")
+    step = answer.steps[0]
+    assert step["count"] == 60
+    assert len(step["result"]["results"]) == 40
+    assert any("truncated 60 rows to 40" in note for note in step["result"]["notes"])

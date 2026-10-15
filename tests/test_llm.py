@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import ClassVar
 
@@ -17,8 +18,9 @@ from archivist.llm import ChatLLM, LLMError
 
 
 class _Handler(BaseHTTPRequestHandler):
-    responses: ClassVar[list[tuple[int, dict]]] = []
+    responses: ClassVar[list[tuple[int, object]]] = []
     requests: ClassVar[list[dict]] = []
+    delay: ClassVar[float] = 0.0
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -26,13 +28,18 @@ class _Handler(BaseHTTPRequestHandler):
         type(self).requests.append(
             {"path": self.path, "headers": dict(self.headers), "body": body}
         )
+        if type(self).delay:  # simulate a slow endpoint (body-read timeout tests)
+            time.sleep(type(self).delay)
         status, payload = type(self).responses.pop(0)
-        data = json.dumps(payload).encode()
+        data = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except OSError:  # client hung up (read timeout in tests)
+            pass
 
     def log_message(self, *args):  # keep test output clean
         pass
@@ -45,6 +52,7 @@ def server():
     thread.start()
     _Handler.responses = []
     _Handler.requests = []
+    _Handler.delay = 0.0
     yield f"http://127.0.0.1:{httpd.server_port}/v1"
     httpd.shutdown()
 
@@ -162,3 +170,105 @@ def test_config_from_env_and_overrides(monkeypatch):
     explicit = ChatLLM(base_url="http://cli.example/v1", model="cli-model")
     assert explicit.base_url == "http://cli.example/v1"
     assert explicit.model == "cli-model"
+
+
+def test_retry_on_429_then_success(server):
+    _Handler.responses.extend(
+        [
+            (429, {"error": {"message": "slow down"}}),
+            (200, {"choices": [{"message": {"content": "ok"}}]}),
+        ]
+    )
+    llm = ChatLLM(base_url=server, api_key="x", model="m", retries=1)
+    llm._backoff = lambda attempt, retry_after: None  # no real sleep in tests
+    response = llm.chat([{"role": "user", "content": "hi"}])
+    assert response.content == "ok"
+    assert len(_Handler.requests) == 2  # first attempt + one retry
+    assert llm.calls == 1
+
+
+def test_401_is_not_retried(server):
+    _Handler.responses.append((401, {"error": {"message": "bad key"}}))
+    llm = ChatLLM(base_url=server, api_key="x", model="m", retries=2)
+    llm._backoff = lambda attempt, retry_after: None
+    with pytest.raises(LLMError):
+        llm.chat([{"role": "user", "content": "hi"}])
+    assert len(_Handler.requests) == 1
+
+
+def test_malformed_200_body_raises_llmerror(server):
+    _Handler.responses.append((200, b"<html>gateway timeout</html>"))
+    llm = ChatLLM(base_url=server, api_key="x", model="m", retries=2)
+    with pytest.raises(LLMError, match="malformed response"):
+        llm.chat([{"role": "user", "content": "hi"}])
+    assert len(_Handler.requests) == 1  # server bugs are not retried
+
+
+def test_non_object_200_body_raises_llmerror(server):
+    _Handler.responses.append((200, [1, 2, 3]))
+    llm = ChatLLM(base_url=server, api_key="x", model="m")
+    with pytest.raises(LLMError, match="expected an object"):
+        llm.chat([{"role": "user", "content": "hi"}])
+
+
+def test_body_read_timeout_raises_llmerror(server):
+    _Handler.responses.append((200, {"choices": [{"message": {"content": "x"}}]}))
+    _Handler.delay = 0.4
+    llm = ChatLLM(base_url=server, api_key="x", model="m", retries=0, timeout=0.05)
+    with pytest.raises(LLMError, match="cannot reach"):
+        llm.chat([{"role": "user", "content": "hi"}])
+
+
+def test_odd_response_shapes_do_not_crash(server):
+    _Handler.responses.append(
+        (
+            200,
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "hello "},
+                                {"type": "text", "text": "world"},
+                            ],
+                            "tool_calls": [
+                                {
+                                    "id": "1",
+                                    "function": {"name": "f", "arguments": [1, 2]},
+                                },
+                                {"id": "2", "function": "not-a-dict"},
+                                "not-a-dict-either",
+                            ],
+                        }
+                    }
+                ]
+            },
+        )
+    )
+    llm = ChatLLM(base_url=server, api_key="x", model="m")
+    response = llm.chat([{"role": "user", "content": "hi"}], tools=[])
+    assert response.content == "hello world"
+    assert len(response.tool_calls) == 2  # non-dict entries skipped
+    broken = response.tool_calls[0]
+    assert broken.parse_error and "got list" in broken.parse_error
+    assert response.tool_calls[1].name == ""
+    assert response.tool_calls[1].parse_error is None
+
+
+def test_openai_fallbacks(monkeypatch):
+    for name in (
+        "ARCHIVIST_LLM_BASE_URL",
+        "ARCHIVIST_LLM_API_KEY",
+        "ARCHIVIST_LLM_MODEL",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://openai.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_MODEL", "m")
+    llm = ChatLLM()
+    assert llm.base_url == "http://openai.example/v1"
+    assert llm.model == "m"
+    assert llm.is_configured() is True

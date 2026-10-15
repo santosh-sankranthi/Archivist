@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
 from archivist.llm import LLMError, LLMResponse
 from archivist.tools import RepoGraph
 
-MAX_ROWS_IN_CONTEXT = 40  # keep tool payloads prompt-sized; trace keeps all
+MAX_ROWS_IN_CONTEXT = 40  # prompt-sized payloads; count + query trail keep the rest
 DEFAULT_MAX_STEPS = 8  # tool rounds before the answer is forced
 
 FINALIZE_NUDGE = (
@@ -265,7 +265,7 @@ class Agent:
     ) -> None:
         self.repo = repo
         self.llm = llm
-        self.max_steps = max_steps
+        self.max_steps = max(1, int(max_steps))  # 0/negatives would run nothing
         self.repo_label = repo_label or getattr(repo, "graph_name", "repo")
 
     def system_message(self) -> dict:
@@ -301,8 +301,15 @@ class Agent:
                         {"role": "tool", "tool_call_id": call.id, "content": payload}
                     )
             else:
-                answer.text = (response.content or "").strip() or "(no answer produced)"
-                answer.partial = finalizing
+                content = response.content
+                text = content.strip() if isinstance(content, str) else ""
+                if text:
+                    answer.text = text
+                    answer.partial = finalizing
+                else:  # an empty 200 must not look like a successful answer
+                    answer.text = "(no answer produced)"
+                    answer.partial = True
+                    answer.error = answer.error or "empty response from model"
                 break
         answer.usage = dict(getattr(self.llm, "usage", {}) or {})
         return answer
@@ -346,6 +353,7 @@ class Agent:
             return json.dumps(data, default=str)
 
         if call.parse_error:
+            step["params"] = {"raw": call.raw_arguments}
             step["error"] = f"arguments were not valid JSON: {call.parse_error}"
             return payload_for({"status": "error", "error": step["error"]}), step
         if call.name not in TOOL_METHODS:
@@ -361,15 +369,20 @@ class Agent:
                 step,
             )
         started = time.perf_counter()
+        mark = self._trace_mark()
         try:
             envelope = getattr(self.repo, TOOL_METHODS[call.name])(
                 **(call.arguments or {})
             )
         except TypeError as exc:  # bad/missing parameters: let the model retry
             step["error"] = f"bad arguments: {exc}"
+            step["ms"] = round((time.perf_counter() - started) * 1000)
+            self._harvest_queries(mark, round_, call.name, answer)
             return payload_for({"status": "error", "error": step["error"]}), step
         except Exception as exc:  # noqa: BLE001 — surfaced to the model, it can adapt
             step["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            step["ms"] = round((time.perf_counter() - started) * 1000)
+            self._harvest_queries(mark, round_, call.name, answer)
             return payload_for({"status": "error", "error": step["error"]}), step
         step["ms"] = round((time.perf_counter() - started) * 1000)
         step["status"] = envelope.get("status", "ok")
@@ -378,3 +391,30 @@ class Agent:
         for query in envelope.get("queries") or []:
             answer.queries.append({"round": round_, "tool": call.name, **query})
         return payload_for(_compact(envelope)), step
+
+    # -- trace helpers -----------------------------------------------------
+
+    def _trace_mark(self) -> int | None:
+        """Index into ``repo.trace`` before a tool call, when supported."""
+        mark = getattr(self.repo, "_mark", None)
+        return mark() if callable(mark) else None
+
+    def _harvest_queries(
+        self, mark: int | None, round_: int, tool: str, answer: Answer
+    ) -> None:
+        """Copy a failed tool's already-executed queries into the trace.
+
+        Tools append to ``repo.trace`` as they query, so even when one raises
+        mid-call the executed statements stay auditable on the Answer.
+        """
+        trace = getattr(self.repo, "trace", None)
+        if mark is None or not isinstance(trace, list):
+            return
+        for record in trace[mark:]:
+            if is_dataclass(record):
+                payload = asdict(record)
+            elif isinstance(record, dict):
+                payload = dict(record)
+            else:
+                continue
+            answer.queries.append({"round": round_, "tool": tool, **payload})
