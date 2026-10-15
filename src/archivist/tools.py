@@ -501,6 +501,122 @@ class RepoGraph:
         status = "ok" if rows else "not_found"
         return self._envelope("search_commits", status, params, rows, [], since)
 
+    def recall(
+        self,
+        query: str | None = None,
+        include_invalid: bool = False,
+        as_of: int | None = None,
+        limit: int = 10,
+    ) -> dict:
+        """Search recorded memory: facts and past sessions (M3a episodes).
+
+        Memory is bi-temporal (see ``archivist.memory``). Default view is
+        "true now": only facts whose window is still open. ``include_invalid``
+        returns full history with validity windows; ``as_of=<epoch>`` asks
+        "what was true at T" (event time). Facts are never deleted, so an
+        invalidated fact is still one query away. With no ``query`` string
+        this lists the most recent memory — the "what did we do last time"
+        call.
+        """
+        since = self._mark()
+        limit = _clamp_limit(limit)
+        params: dict[str, Any] = {
+            "query": query,
+            "include_invalid": include_invalid,
+            "as_of": as_of,
+            "limit": limit,
+        }
+        fact_params: dict[str, Any] = {"limit": limit}
+        episode_params: dict[str, Any] = {"limit": limit}
+        if query:
+            fact_params["query"] = query
+            episode_params["query"] = query
+        if as_of is not None:
+            fact_params["as_of"] = as_of
+            episode_params["as_of"] = as_of
+
+        fact_where: list[str] = []
+        if query:
+            fact_where.append("toLower(f.text) CONTAINS toLower($query)")
+        if as_of is not None:
+            fact_where.append(
+                "coalesce(f.valid_at, f.created_at) <= $as_of"
+                " AND (f.invalid_at IS NULL OR f.invalid_at > $as_of)"
+            )
+        elif not include_invalid:
+            fact_where.append("f.invalid_at IS NULL")
+        fact_filter = (" WHERE " + " AND ".join(fact_where)) if fact_where else ""
+        facts = self._q(
+            f"""
+            MATCH (f:Fact){fact_filter}
+            OPTIONAL MATCH (e:Episode)-[:PRODUCED]->(f)
+            RETURN f.id AS id, f.text AS text, f.kind AS kind,
+                   coalesce(f.valid_at, f.created_at) AS ts,
+                   f.valid_at AS valid_at, f.invalid_at AS invalid_at,
+                   f.created_at AS created_at, f.expired_at AS expired_at,
+                   collect(e.id) AS episode_ids, collect(e.kind) AS episode_kinds
+            ORDER BY coalesce(f.valid_at, f.created_at) DESC, f.id
+            LIMIT $limit
+            """,
+            fact_params,
+        )
+
+        episode_where: list[str] = []
+        if query:
+            episode_where.append(
+                "(toLower(coalesce(e.question, '')) CONTAINS toLower($query)"
+                " OR toLower(coalesce(e.answer, '')) CONTAINS toLower($query))"
+            )
+        if as_of is not None:
+            episode_where.append("coalesce(e.ts, e.created_at) <= $as_of")
+        episode_filter = (
+            (" WHERE " + " AND ".join(episode_where)) if episode_where else ""
+        )
+        episodes = self._q(
+            f"""
+            MATCH (e:Episode){episode_filter}
+            RETURN e.id AS id, e.kind AS kind, e.source AS source,
+                   coalesce(e.ts, e.created_at) AS ts,
+                   e.question AS question, e.answer AS answer
+            ORDER BY coalesce(e.ts, e.created_at) DESC, e.id
+            LIMIT $limit
+            """,
+            episode_params,
+        )
+
+        notes: list[str] = []
+        truncated = 0
+        rows: list[dict] = []
+        for row in facts:
+            # A fact can have several producing episodes over time; the
+            # first is enough for the row view (lineage stays on the edges).
+            eps = [e for e in (row.pop("episode_ids") or []) if e]
+            kinds = [k for k in (row.pop("episode_kinds") or []) if k]
+            row["episode_id"] = eps[0] if eps else None
+            row["episode_kind"] = kinds[0] if kinds else None
+            rows.append({**row, "type": "fact"})
+        for row in episodes:
+            row = {**row, "type": "episode"}
+            if isinstance(row.get("answer"), str) and len(row["answer"]) > 400:
+                row["answer"] = row["answer"][:399] + "…"
+                truncated += 1
+            rows.append(row)
+        rows.sort(key=lambda r: (-(r.get("ts") or 0), str(r.get("id") or "")))
+        rows = rows[:limit]
+
+        if include_invalid and as_of is None:
+            notes.append("invalidated facts included (full history)")
+        if as_of is not None:
+            notes.append(f"as of {as_of} (event time)")
+        if truncated:
+            notes.append(f"{truncated} episode answers truncated for context")
+        if rows:
+            notes.insert(0, f"{len(facts)} facts, {len(episodes)} sessions")
+        else:
+            notes.append("no memory matches (nothing recorded yet?)")
+        status = "ok" if rows else "not_found"
+        return self._envelope("recall", status, params, rows, notes, since)
+
     def query(self, cypher: str, params: dict | None = None, limit: int = 100) -> dict:
         """Run a read-only Cypher escape hatch (for demos / ad-hoc inspection).
 

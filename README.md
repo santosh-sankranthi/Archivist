@@ -7,9 +7,10 @@ a codebase + its git history into a living graph, answers multi-hop questions
 with traceable reasoning paths, takes actions, remembers across sessions, and
 coordinates multiple agents over shared graph state.
 
-Status: **M2 — agent core in progress** (ingest pipeline repeatable & idempotent;
-read-only graph tool suite with envelope+trace contract; tool-calling agent loop
-with auditable traces — see `docs/demo/`).
+Status: **M3 — memory layer** (ingest pipeline repeatable & idempotent;
+read-only graph tool suite with envelope+trace contract; tool-calling agent
+loop with auditable traces; M3a: episodes + bi-temporal facts — sessions
+recall each other, invalidate-don't-delete — see `docs/demo/`).
 
 ## Quickstart (dev)
 
@@ -54,5 +55,14 @@ timeouts) are retried with backoff; anything that still fails is recorded on
 the answer's trace instead of crashing the run. A mechanics transcript
 generated without a key lives in `docs/demo/m2b-agent-loop.txt` (scripted
 calls, real queries).
+
+## Memory (M3)
+
+Every `ask.py` run is persisted to the graph as an `agent-session` episode,
+and the agent can `remember` findings (anchored to symbols/files/commits)
+and `recall` them later — facts carry bi-temporal validity windows, and a
+superseded fact is closed, never deleted. `--no-memory` skips recording.
+Mechanics transcript: `docs/demo/m3a-memory.txt` (scripted calls, live
+graph, a second session recalling the first).
 
 > Built during the Graph Hacks event window (Oct 15–18, 2026).

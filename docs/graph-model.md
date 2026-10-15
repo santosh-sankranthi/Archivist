@@ -11,6 +11,8 @@ One graph per repo (e.g. `repo:flask`). Multi-repo = separate graphs (multi-tena
 | `File` | path, lang, loc |
 | `Symbol` | name, kind (function/class/method), qualname, file, lineno |
 | `Module` | name (python package/module) |
+| `Episode` | id, kind (agent-session/ingest-run/test-run/…), source, ts, created_at |
+| `Fact` | id, text, kind, created_at, valid_at, invalid_at, expired_at |
 
 ## Edges
 - `(Author)-[:AUTHORED]->(Commit)`
@@ -22,9 +24,32 @@ One graph per repo (e.g. `repo:flask`). Multi-repo = separate graphs (multi-tena
 - `(Symbol)-[:CALLS {count, lines, weak}]->(Symbol)` — aggregated per caller→callee pair;
   `lines` = call sites, `count` = len(lines), `weak` = guess flag (below);
   best-effort resolution (below)
+- `(Episode)-[:PRODUCED]->(Fact)` — which session/run established a memory fact
+- `(Fact)-[:ABOUT]->(Symbol|File|Commit)` — optional anchors, resolved by key
+- `(Fact)-[:SUPERSEDES]->(Fact)` — lineage when a claim replaces another
+
+## Memory model (M3a) — episodes + bi-temporal facts
+
+Everything the agent learns hangs off an `:Episode` — a raw unit that
+really happened (`agent-session`, `ingest-run`, `test-run`, …); facts
+reference the episode that produced them, so provenance exists by
+construction. Fact windows are **bi-temporal**: `valid_at`/`invalid_at` =
+event time (when the claim was true in the world), `created_at`/
+`expired_at` = transaction time (when the graph learned it, and learned it
+stopped being true).
+
+Facts are **never deleted**: a contradiction closes the old window
+(`invalid_at`, `expired_at`) and records the replacement with a tiled
+`valid_at` + `SUPERSEDES` edge. `RepoGraph.recall` reads three views — true
+now (open windows, default), full history (`include_invalid=true`), and
+"true at T" (`as_of`, event time). Fact ids are content-addressed over
+episode + normalized text unless given explicitly: remembering the same
+claim twice converges, same rule as ingest.
 
 ## Rules
 - Re-ingest = `MERGE` + prune (idempotent).
+- Memory nodes (`Episode`/`Fact`) carry no run stamp: ingest's prune never
+touches them, and superseded facts stay queryable (invalidate-don't-delete).
 - Keys are file-scoped; symbol identity = `file + qualname`.
 - All timestamps UTC epoch.
 

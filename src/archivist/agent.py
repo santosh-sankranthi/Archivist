@@ -51,6 +51,10 @@ How to work:
   commit SHAs. Precision and honesty are the product.
 - Name-guessed (weak) CALLS edges are excluded by default; only opt in with
   include_weak=true when the user explicitly wants best-effort coverage.
+- Memory: `recall` searches persisted findings and past sessions — use it
+  when the user references earlier work ("last time", "previously").
+  `remember` stores one durable finding for later sessions: conclusions
+  worth keeping, not raw query results.
 - Keep the final answer tight: 2-6 sentences or a short list, with citations.
 """
 
@@ -191,6 +195,45 @@ TOOL_SCHEMAS: list[dict] = [
         ["text"],
     ),
     _fn(
+        "recall",
+        "Search Archivist's persisted memory: findings (facts) and past sessions, newest first. Use when the user references earlier work ('last time', 'previously') or asks what was already found. Defaults to what is true now; include_invalid=true shows full history, as_of=<epoch> asks what was true at that event time.",
+        {
+            "query": {
+                "type": "string",
+                "description": "Optional substring matched against fact text and session questions/answers.",
+            },
+            "include_invalid": {
+                "type": "boolean",
+                "description": "Include invalidated facts with their windows (default false).",
+            },
+            "as_of": {
+                "type": "integer",
+                "description": "Unix epoch seconds: what was true at that event time.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max rows, 1-100 (default 10).",
+            },
+        },
+    ),
+    _fn(
+        "remember",
+        "Persist a durable finding to graph memory so later sessions can recall it. One short claim per fact; attach refs to anchor it to symbols/files/commits. Use sparingly — only conclusions worth keeping.",
+        {
+            "text": {"type": "string", "description": "The finding, one sentence."},
+            "kind": {
+                "type": "string",
+                "description": "Category, e.g. finding / reviewer / convention.",
+            },
+            "refs": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": 'Graph anchors, e.g. [{"kind": "symbol", "file": ..., "qualname": ...}, {"kind": "file", "path": ...}, {"kind": "commit", "sha": ...}].',
+            },
+        },
+        ["text"],
+    ),
+    _fn(
         "query",
         "Read-only Cypher escape hatch for questions the curated tools do not fit. Writes are rejected by the database.",
         {
@@ -262,11 +305,15 @@ class Agent:
         *,
         max_steps: int = DEFAULT_MAX_STEPS,
         repo_label: str | None = None,
+        memory: Any = None,
+        episode_id: str | None = None,
     ) -> None:
         self.repo = repo
         self.llm = llm
         self.max_steps = max(1, int(max_steps))  # 0/negatives would run nothing
         self.repo_label = repo_label or getattr(repo, "graph_name", "repo")
+        self.memory = memory  # optional memory.Memory; enables the `remember` tool
+        self.episode_id = episode_id  # provenance for facts this run records
 
     def system_message(self) -> dict:
         return {"role": "system", "content": SYSTEM_PROMPT.format(repo=self.repo_label)}
@@ -371,9 +418,7 @@ class Agent:
         started = time.perf_counter()
         mark = self._trace_mark()
         try:
-            envelope = getattr(self.repo, TOOL_METHODS[call.name])(
-                **(call.arguments or {})
-            )
+            envelope = self._dispatch(call.name, call.arguments or {})
         except TypeError as exc:  # bad/missing parameters: let the model retry
             step["error"] = f"bad arguments: {exc}"
             step["ms"] = round((time.perf_counter() - started) * 1000)
@@ -388,9 +433,62 @@ class Agent:
         step["status"] = envelope.get("status", "ok")
         step["count"] = envelope.get("count")
         step["notes"] = list(envelope.get("notes") or [])
+        if step["status"] == "error" and not step["error"]:
+            step["error"] = "; ".join(step["notes"]) or "tool error"
         for query in envelope.get("queries") or []:
             answer.queries.append({"round": round_, "tool": call.name, **query})
         return payload_for(_compact(envelope)), step
+
+    # -- tool dispatch ------------------------------------------------------
+
+    def _dispatch(self, name: str, arguments: dict) -> dict:
+        """Route one tool call; ``remember`` writes through the memory layer."""
+        if name == "remember":
+            return self._remember(arguments)
+        return getattr(self.repo, TOOL_METHODS[name])(**arguments)
+
+    def _remember(self, arguments: dict) -> dict:
+        """Envelope for the write tool: persist one fact via ``self.memory``.
+
+        Errors come back as envelopes (not exceptions) so the model can
+        recover, mirroring the read tools' contract. The write carries no
+        ``queries`` — it is memory, not a read of the graph.
+        """
+
+        def shell(status: str, results: Any, notes: list[str]) -> dict:
+            return {
+                "tool": "remember",
+                "status": status,
+                "params": arguments,
+                "count": None,
+                "results": results,
+                "notes": notes,
+                "queries": [],
+            }
+
+        if self.memory is None:
+            return shell("error", None, ["memory is not enabled for this run"])
+        text = str(arguments.get("text") or "").strip()
+        if not text:
+            return shell("error", None, ["text is required"])
+        raw_refs = arguments.get("refs") or []
+        refs = [ref for ref in raw_refs if isinstance(ref, dict)]
+        result = self.memory.remember_fact(
+            text=text,
+            kind=str(arguments.get("kind") or "finding"),
+            episode_id=self.episode_id,
+            refs=refs or None,
+        )
+        notes = [f"recorded as {result['fact_id']}"]
+        if self.episode_id and not result["provenance"]:
+            notes.append("episode link missing — fact has no provenance")
+        if result["refs_missing"]:
+            notes.append(
+                "missing refs: " + ", ".join(str(m) for m in result["refs_missing"])
+            )
+        if len(raw_refs) - len(refs):
+            notes.append(f"{len(raw_refs) - len(refs)} non-object refs ignored")
+        return {**shell("ok", result, notes), "count": 1}
 
     # -- trace helpers -----------------------------------------------------
 

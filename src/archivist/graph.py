@@ -26,6 +26,9 @@ INDEXES: list[tuple[str, str]] = [
     ("range Commit.sha", "CREATE INDEX FOR (c:Commit) ON (c.sha)"),
     ("range Module.name", "CREATE INDEX FOR (m:Module) ON (m.name)"),
     ("fulltext Symbol.name", "CREATE FULLTEXT INDEX FOR (s:Symbol) ON (s.name)"),
+    # Memory (M3a): MERGE-key lookups for episodes/facts.
+    ("range Episode.id", "CREATE INDEX FOR (e:Episode) ON (e.id)"),
+    ("range Fact.id", "CREATE INDEX FOR (f:Fact) ON (f.id)"),
 ]
 
 

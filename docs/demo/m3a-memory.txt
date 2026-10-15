@@ -1,0 +1,36 @@
+M3a — persistent memory over repo:flask (scripted model, live graph)
+
+== setup ==
+owners(src/flask/json/tag.py) -> top: David Lord (11 commits, first 1559401225, last 1712510680)
+
+== session one — investigate, then remember ==
+  owners     -> ok (2 rows, 1 ms)
+  remember   -> ok (1 row, 2 ms)
+      note: recorded as fact:21cece096a942551
+  [scripted closing] [scripted closing — a real model composes this from the owners result and records the finding with `remember`; both calls above are real]
+
+== session two (fresh start) — recall the prior work ==
+  recall     -> ok (3 rows, 1 ms)
+      note: 1 facts, 2 sessions
+  [scripted closing] [scripted closing — a real model answers from the recall result above, citing the fact; every row shown here came out of the graph]
+  recall rows (3, notes: ['1 facts, 2 sessions']):
+    [session] demo:session:tag-recall: Did we look into tag.py before? What did we conclude?
+    [session] demo:session:tag-review: Who should review changes to src/flask/json/tag.py — and remember the finding.
+    [fact] fact:21cece096a942551: json/tag.py review routing: David Lord has the most commits touching src/flask/json/tag.py (11).
+           valid 1792105690 -> open | from episode demo:session:tag-review
+
+== later — the finding is superseded (invalidate-don't-delete) ==
+  supersede fact:21cece096a942551 -> demo:fact:tag-review:v2 (old invalidated: True)
+
+  true now (3 rows, notes: ['1 facts, 2 sessions']):
+    [fact] demo:fact:tag-review:v2: json/tag.py review routing: David Lord has the most commits touching src/flask/json/tag.py (11). (updated: routing review through the top two authors.)
+    [episode] demo:session:tag-recall: Did we look into tag.py before? What did we conclude?
+    [episode] demo:session:tag-review: Who should review changes to src/flask/json/tag.py — and remember the finding.
+
+  full history (4 rows, notes: ['2 facts, 2 sessions', 'invalidated facts included (full history)']):
+    [fact] demo:fact:tag-review:v2 (valid 1792105690 -> open): json/tag.py review routing: David Lord has the most commits touching src/flask/json/tag.py (11). (updated: routing review through the top two authors.)
+    [session] demo:session:tag-recall: Did we look into tag.py before? What did we conclude?
+    [session] demo:session:tag-review: Who should review changes to src/flask/json/tag.py — and remember the finding.
+    [fact] fact:21cece096a942551 (valid 1792105690 -> 1792105690): json/tag.py review routing: David Lord has the most commits touching src/flask/json/tag.py (11).
+
+(demo nodes are prefixed demo:* and reset on every run; facts are never deleted — only their validity window closes)
