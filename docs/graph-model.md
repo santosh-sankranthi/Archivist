@@ -19,41 +19,53 @@ One graph per repo (e.g. `repo:flask`). Multi-repo = separate graphs (multi-tena
 - `(Repo)-[:HEAD]->(Commit)`
 - `(File)-[:DEFINES]->(Symbol)`
 - `(File)-[:IMPORTS {line}]->(Module)`
-- `(Symbol)-[:CALLS {count, lines}]->(Symbol)` — aggregated per caller→callee pair;
-  `lines` = call sites, `count` = len(lines); best-effort resolution (below)
+- `(Symbol)-[:CALLS {count, lines, weak}]->(Symbol)` — aggregated per caller→callee pair;
+  `lines` = call sites, `count` = len(lines), `weak` = guess flag (below);
+  best-effort resolution (below)
 
 ## Rules
 - Re-ingest = `MERGE` + prune (idempotent).
 - Keys are file-scoped; symbol identity = `file + qualname`.
 - All timestamps UTC epoch.
 
-## CALLS resolution (M1c — best-effort, honest)
+## CALLS resolution (M1c v1.1 — best-effort, honest)
 
 Call *capture* is syntactic (`pyparse`): every call whose callee is a plain
 dotted name (`f`, `self.m`, `os.path.join`), attributed to the nearest
 enclosing def. *Resolution* happens repo-wide (`archivist.calls`), in
-widening rings, first confident match wins — everything else is counted,
-never guessed:
+widening rings, first match worth trusting wins — everything else is
+counted, never guessed. Rings 3–4 are guesses and carry `weak=true`:
 
-1. **Same file, scope-aware** — `<caller-scope-prefix>.<name>` from the
-   innermost scope outward; `self`/`cls` calls use the enclosing-class floor
-   (a class sibling or nested def, never a same-named top-level def).
-2. **Same file, unique name** — exactly one symbol with that name (a *weak*
-   match: scope-blind; counted separately).
-3. **Cross-file via imports** — dotted targets from `import` / `from ...`
-   resolved against a module index built from file paths (longest module
-   prefix wins; package `__init__.py` re-exports chased up to 2 hops);
-   relative imports anchored to the caller's directory.
+1. **Same file, function scopes only** — `<caller-scope-prefix>.<name>` from
+   the innermost scope outward; class scopes are skipped (Python name
+   resolution never enters them), and `self.m`/`cls.m` calls use the
+   enclosing-class floor (a class sibling or nested def, never a same-named
+   top-level def).
+2. **Cross-file via import bindings** — `import` / `from ... import`
+   targets resolved against a module index built from file paths (longest
+   module prefix wins; package `__init__.py` re-exports chased up to 2
+   hops); relative imports anchored to the caller's directory. Bindings
+   respect scope: a function-local import is only visible inside its own
+   def. Import targets only match module keys that could genuinely be
+   importable names (a packaged prefix is not a sys.path root).
+3. **Same file, unique name — weak** — exactly one non-class-scoped symbol
+   carries the name (`weak_unique`; scope-blind).
+4. **Absolute module path, no binding — weak** — longest module key +
+   symbol lookup (`weak_module`; right by naming luck, not semantics, e.g.
+   `app.test_client` in test fixtures).
 
-Edges are aggregated (`count`, `lines`), carry the run stamp, and are
-pruned with the nodes. Coverage on flask (2026-10-15): **3,651 sites → 917
-resolved (752 exact + 165 weak) → 765 aggregated edges**; 2,734 unresolved.
+Edges are aggregated (`count`, `lines`, `weak`), carry the run stamp, and
+are pruned with the nodes. Coverage on flask (2026-10-15, resolver v1.1):
+**3,651 sites → 898 resolved (738 exact + 160 weak: 2 unique + 158 module)
+→ 752 aggregated edges**; 2,753 unresolved; 0 ambiguous.
 
 Known limits (honest):
 - No type inference: `app.route` where `app` is a local variable never links
   (the largest remaining bucket); a resolver v2 could add local-alias typing
   (`x = Klass(...)`) — candidate for M2+.
-- Weak matches can be wrong in principle and aren't flagged on the edge yet.
+- Ring-3/4 matches can be wrong in principle; every such edge is flagged
+  `weak` so answers can down-rank or filter them (flask keeps two weak
+  ring-4 self-loops in `cli.py` as documented guesses).
 - `super()`, methods passed as values, dynamic `getattr`, and calls in
   module-level lambdas are out of scope.
 

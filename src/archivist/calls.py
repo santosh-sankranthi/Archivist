@@ -1,25 +1,31 @@
-"""Repo-wide call-site resolution (M1c) — best-effort, honest about it.
+"""Repo-wide call-site resolution (M1c/M1d) — best-effort, honest about it.
 
 Why name-based resolution instead of a real type checker: v0 needs *useful
 and truthful* CALLS edges for impact analysis, and full Python name binding
-is a research project. We resolve in widening rings, stop at the first
-confident match, and count everything we skip — no cross-scope guessing:
+is a research project. We resolve in widening rings, stop at the first match
+worth trusting, and count what we skip — no silent guessing:
 
-1. Same file, scope-aware: try ``<caller-scope-prefix>.<name>`` from the
-   innermost scope outward, so nested defs, sibling methods (``self.m``) and
-   top-level defs resolve exactly.
-2. Same file, unique name: exactly one symbol carries that name (weak match,
-   counted as such — it ignores scope, e.g. a lone ``helper`` defined inside
-   another function).
-3. Cross-file via import bindings: resolve the dotted target of ``import`` /
-   ``from ... import`` against a module index built from file paths (longest
-   module prefix wins; symbol looked up in the target file, chasing package
-   ``__init__.py`` re-exports up to two hops). Relative imports are anchored
-   to the caller file's directory.
+1. Same file, function scopes only: ``<caller-scope-prefix>.<name>`` from the
+   innermost scope outward, skipping class scopes (Python name resolution
+   never enters them; ``self.m``/``cls.m`` is the only route into a class and
+   is handled separately with the enclosing class as its floor).
+2. Import bindings: ``import`` / ``from ... import`` targets, respecting the
+   binding's scope (module-level or function-local) and chasing package
+   ``__init__.py`` re-exports up to two hops. Relative targets anchor at the
+   caller's directory; absolute targets only match module keys that could
+   genuinely be importable (a key whose skipped directories contain no
+   ``__init__.py`` — a packaged prefix cannot be a sys.path root, so e.g.
+   `json.dumps` never resolves to ``flask/json/``'s file).
+3. Same file, unique name — a *weak* match: exactly one non-class-scoped
+   symbol carries the name (counted as ``weak_unique``; scope-blind).
+4. Absolute module path with no binding — a *weak* guess: longest module key
+   + symbol lookup (counted as ``weak_module``; right by naming luck, not
+   semantics, e.g. ``app.test_client`` in test fixtures).
 
-Everything else (stdlib, third-party, dynamic calls) stays unresolved and is
-counted; ingest logs the coverage so the honest number is always visible.
-See docs/graph-model.md §CALLS for the semantics and the known gaps.
+Everything else (stdlib, third-party, calls on local variables, ambiguous
+names) stays unresolved and is counted, so the honest coverage is visible.
+Edges resolved via rings 3–4 carry ``weak=True`` so queries can down-rank or
+filter guesses. See docs/graph-model.md §CALLS for semantics and gaps.
 """
 
 from __future__ import annotations
@@ -47,17 +53,20 @@ class CallEdge:
     callee_qual: str
     count: int
     lines: tuple[int, ...]
+    weak: bool
 
 
-def _module_keys(path: str) -> list[str]:
+def _module_key_entries(path: str, dirs_with_init: set[str]) -> list[tuple[str, bool]]:
     """Candidate dotted module names for a ``.py`` path, longest suffix first.
 
-    ``src/flask/app.py`` -> ``src.flask.app``, ``flask.app``, ``app``.
-    Keeping every suffix absorbs the "where is the package root?" question
-    (src layout vs flat vs tests): the lookup side prefers the longest match,
-    and files that would collide on the short keys just never get one.
-    ``__init__.py`` keys drop the stem (the package itself). Stubs (``.pyi``)
-    are not importable units — skipped.
+    ``src/flask/app.py`` -> ``src.flask.app``, ``flask.app``, ``app``. Every
+    suffix stays a candidate (repos disagree on where the package root is),
+    but each key carries a ``packaged`` flag: True when the directories it
+    would skip contain an ``__init__.py``, i.e. the key starts *inside* a
+    package and could never be a top-level importable name. Strict lookups
+    (import-statement targets) refuse packaged keys; lenient lookups (the
+    weak ring-4 guess) keep them. ``__init__.py`` drops the stem; stubs
+    (``.pyi``) are not importable units — skipped.
     """
     if path.endswith(".pyi"):
         return []
@@ -66,11 +75,17 @@ def _module_keys(path: str) -> list[str]:
         parts = parts[:-1]
     if not parts:
         return []
-    return [".".join(parts[i:]) for i in range(len(parts))]
+    entries: list[tuple[str, bool]] = []
+    for i in range(len(parts)):
+        key = ".".join(parts[i:])
+        base_dirs = ["/".join(parts[:j]) for j in range(1, i + 1)]
+        packaged = any(d in dirs_with_init for d in base_dirs)
+        entries.append((key, packaged))
+    return entries
 
 
 class _Repo:
-    """Symbol and module indexes built once per ingest run."""
+    """Symbol, binding and module indexes built once per ingest run."""
 
     def __init__(
         self, parsed_by_file: dict[str, ParsedModule], python_files: list[str]
@@ -79,34 +94,54 @@ class _Repo:
             path: {sym.qualname: sym for sym in module.symbols}
             for path, module in parsed_by_file.items()
         }
-        self.bindings: dict[str, dict[str, ImportBinding]] = {
-            path: {binding.name: binding for binding in module.bindings}
-            for path, module in parsed_by_file.items()
-        }
         self.by_name: dict[str, dict[str, list[str]]] = {}
         for path, table in self.symbols.items():
             names: dict[str, list[str]] = defaultdict(list)
             for qualname, sym in table.items():
                 names[sym.name].append(qualname)
             self.by_name[path] = {name: sorted(q) for name, q in names.items()}
-        self.modules: dict[str, list[str]] = defaultdict(list)
+        # All bindings (scoped) for call resolution; module-level only for
+        # the re-export chase (only module level can re-export).
+        self.bindings_by_name: dict[str, dict[str, list[ImportBinding]]] = {}
+        self.reexports: dict[str, dict[str, ImportBinding]] = {}
+        for path, module in parsed_by_file.items():
+            by_name: dict[str, list[ImportBinding]] = defaultdict(list)
+            for binding in module.bindings:
+                by_name[binding.name].append(binding)
+            self.bindings_by_name[path] = dict(by_name)
+            self.reexports[path] = {
+                b.name: b for b in module.bindings if b.scope is None
+            }
+        dirs_with_init = {
+            PurePosixPath(p).parent.as_posix()
+            for p in python_files
+            if p.endswith("__init__.py")
+        }
+        entries: dict[str, list[tuple[str, bool]]] = defaultdict(list)
         for path in python_files:
-            for key in _module_keys(path):
-                self.modules[key].append(path)
-        for files in self.modules.values():
+            for key, packaged in _module_key_entries(path, dirs_with_init):
+                entries[key].append((path, packaged))
+        self.modules: dict[str, list[tuple[str, bool]]] = {}
+        for key, candidates in entries.items():
             # Deterministic pick: fewest path parts, then lexicographic.
-            files.sort(key=lambda p: (len(p.split("/")), p))
+            candidates.sort(key=lambda item: (len(item[0].split("/")), item[0]))
+            self.modules[key] = candidates
 
-    def file_for_module(self, key: str) -> str | None:
-        files = self.modules.get(key)
-        return files[0] if files else None
+    def file_for_module(self, key: str, strict: bool = False) -> str | None:
+        """File for a module key; ``strict`` refuses packaged-prefix keys."""
+        for path, packaged in self.modules.get(key, []):
+            if not strict or not packaged:
+                return path
+        return None
 
     def symbol_in(self, file: str, path: str, depth: int = 0) -> tuple[str, str] | None:
         """Resolve dotted ``path`` inside ``file``.
 
-        Exact qualname first; then follow the file's own import bindings
-        (package ``__init__.py`` re-exports like ``from .app import Flask``)
-        up to two hops; then, for single names, the unique-name fallback.
+        Exact qualname first; then follow the file's module-level import
+        bindings (package ``__init__.py`` re-exports like ``from .app import
+        Flask``) up to two hops; then, for single names, the unique-name
+        namespace lookup (any symbol kind — this is a module namespace, not a
+        scope chain).
         """
         table = self.symbols.get(file)
         if table is None:
@@ -115,12 +150,12 @@ class _Repo:
             return file, path
         parts = path.split(".")
         if depth < 2:
-            binding = self.bindings.get(file, {}).get(parts[0])
+            binding = self.reexports.get(file, {}).get(parts[0])
             if binding:
                 target = binding.target
                 if len(parts) > 1:
                     target = f"{target}.{'.'.join(parts[1:])}"
-                hit = _resolve_symbol_path(self, file, target, depth + 1)
+                hit = _resolve_symbol_path(self, file, target, depth + 1, strict=True)
                 if hit:
                     return hit
         if len(parts) == 1:
@@ -131,14 +166,16 @@ class _Repo:
 
 
 def _resolve_symbol_path(
-    repo: _Repo, caller_file: str, target: str, depth: int = 0
+    repo: _Repo, caller_file: str, target: str, depth: int = 0, strict: bool = False
 ) -> tuple[str, str] | None:
     """Resolve a dotted ``target`` (absolute or relative) to (file, qualname).
 
     Longest module prefix first (``flask.helpers.url_for`` tries module
     ``flask.helpers`` + symbol ``url_for`` before anything shorter). Relative
     targets (leading dots) anchor at the caller's directory: one dot = its
-    package/containing dir, each extra dot climbs one level.
+    package/containing dir, each extra dot climbs one level. ``strict`` marks
+    targets that came from import statements: those only match module keys
+    that could genuinely be top-level importable names.
     """
     level = len(target) - len(target.lstrip("."))
     rest = [part for part in target.lstrip(".").split(".") if part]
@@ -151,8 +188,7 @@ def _resolve_symbol_path(
     else:
         parts = rest
     for size in range(len(parts), 0, -1):
-        module_key = ".".join(parts[:size])
-        file = repo.file_for_module(module_key)
+        file = repo.file_for_module(".".join(parts[:size]), strict=strict)
         if file is None:
             continue
         symbol_path = ".".join(parts[size:])
@@ -169,15 +205,22 @@ def _scoped_lookup(
 ) -> tuple[str, str] | None:
     """Try ``<caller-scope-prefix> + rest`` from the innermost scope outward.
 
-        ``helper()`` inside ``outer`` finds ``outer.helper``; a nested ``inner``
-        call inside ``top`` finds ``top.inner``; ``depth 0`` is the file's
-    top level (plain global lookup).
+    Scope-accurate: class-level prefixes are skipped (Python name resolution
+    never enters class scopes — a bare ``helper()`` inside a method must not
+    find ``C.helper``), while nested defs and enclosing function scopes are
+    tried exactly. Depth 0 is the file's top level. The one exception is the
+    caller's own scope when it *is* a class body (class-body statements run
+    with the class namespace in place, so their own defs are visible).
     """
     table = repo.symbols.get(file)
     if not table:
         return None
     scope = caller.split(".")
     for depth in range(len(scope), -1, -1):
+        if 0 < depth < len(scope):
+            prefix = table.get(".".join(scope[:depth]))
+            if prefix is not None and prefix.kind == "class":
+                continue
         candidate = ".".join(scope[:depth] + rest)
         if candidate in table:
             return file, candidate
@@ -213,61 +256,118 @@ def _self_lookup(
     return None
 
 
+def _function_scope_prefixes(table: dict[str, Symbol], caller: str) -> set[str]:
+    """Qualname prefixes of ``caller`` that denote function scopes.
+
+    Class-body prefixes are excluded (bindings inside a class body do not
+    apply to methods — Python name resolution skips class scopes).
+    """
+    prefixes: set[str] = set()
+    parts = caller.split(".")
+    for depth in range(len(parts), 0, -1):
+        prefix = ".".join(parts[:depth])
+        sym = table.get(prefix)
+        if sym is None or sym.kind != "class":
+            prefixes.add(prefix)
+    return prefixes
+
+
+def _applicable_binding(
+    repo: _Repo, file: str, name: str, caller: str
+) -> ImportBinding | None:
+    """The import binding that ``name`` refers to at ``caller``, if any.
+
+    Module-level bindings always apply; function-local ones only inside the
+    def they live in. Innermost scope wins; on equal scope the later import
+    wins (≈ rebinding order).
+    """
+    table = repo.symbols.get(file) or {}
+    allowed = _function_scope_prefixes(table, caller)
+    options = [
+        binding
+        for binding in repo.bindings_by_name.get(file, {}).get(name, [])
+        if binding.scope is None or binding.scope in allowed
+    ]
+    if not options:
+        return None
+    return max(options, key=lambda b: (len(b.scope or ""), b.line))
+
+
+def _class_owned(repo: _Repo, file: str, qualname: str) -> bool:
+    """True when any proper prefix of ``qualname`` is a class symbol.
+
+    Such symbols live in a class namespace — unreachable by the scope-blind
+    unique-name fallback, so they are excluded from it.
+    """
+    table = repo.symbols.get(file) or {}
+    parts = qualname.split(".")
+    for depth in range(1, len(parts)):
+        sym = table.get(".".join(parts[:depth]))
+        if sym is not None and sym.kind == "class":
+            return True
+    return False
+
+
 def _resolve_call(
     repo: _Repo,
     caller_file: str,
     callee: str,
     caller: str,
-    bindings: dict[str, ImportBinding],
     stats: dict[str, int],
-) -> tuple[str, str] | None:
+) -> tuple[tuple[str, str] | None, bool]:
+    """Resolve one call site; returns ``((file, qualname) | None, weak)``."""
     parts = callee.split(".")
     if len(parts) > 1 and parts[0] in _SELF_NAMES:
         hit = _self_lookup(repo, caller_file, caller, parts[1:])
         if hit:
             stats["exact"] += 1
-        return hit
+        return hit, False
 
     if len(parts) == 1:
         hit = _scoped_lookup(repo, caller_file, caller, parts)
         if hit:
             stats["exact"] += 1
-            return hit
-        candidates = repo.by_name.get(caller_file, {}).get(parts[0])
-        if candidates:
-            if len(candidates) == 1:
-                stats["weak"] += 1
-                return caller_file, candidates[0]
-            stats["ambiguous"] += 1
-            return None
-        binding = bindings.get(parts[0])
+            return hit, False
+        binding = _applicable_binding(repo, caller_file, parts[0], caller)
         if binding:
-            hit = _resolve_symbol_path(repo, caller_file, binding.target)
+            hit = _resolve_symbol_path(repo, caller_file, binding.target, strict=True)
             if hit:
                 stats["exact"] += 1
-            return hit
-        return None
+            return hit, False
+        candidates = [
+            qual
+            for qual in repo.by_name.get(caller_file, {}).get(parts[0], [])
+            if not _class_owned(repo, caller_file, qual)
+        ]
+        if candidates:
+            if len(candidates) == 1:
+                stats["weak_unique"] += 1
+                return (caller_file, candidates[0]), True
+            stats["ambiguous"] += 1
+            return None, False
+        return None, False
 
     # Dotted callee, not self/cls.
-    binding = bindings.get(parts[0])
+    binding = _applicable_binding(repo, caller_file, parts[0], caller)
     if binding:
         target = f"{binding.target}.{'.'.join(parts[1:])}"
-        hit = _resolve_symbol_path(repo, caller_file, target)
+        hit = _resolve_symbol_path(repo, caller_file, target, strict=True)
         if hit:
             stats["exact"] += 1
-            return hit
+        return hit, False
 
     # A locally defined class used as an attribute base: ``Widget.make()``.
     hit = _scoped_lookup(repo, caller_file, caller, parts)
     if hit:
         stats["exact"] += 1
-        return hit
+        return hit, False
 
-    # Absolute module path with no binding recorded (e.g. re-exports).
-    hit = _resolve_symbol_path(repo, caller_file, callee)
+    # Ring 4: absolute module path with no binding recorded — a weak guess.
+    hit = _resolve_symbol_path(repo, caller_file, callee, strict=False)
     if hit:
-        stats["weak"] += 1
-    return hit
+        stats["weak_module"] += 1
+        return hit, True
+    return None, False
 
 
 def resolve_calls(
@@ -275,28 +375,36 @@ def resolve_calls(
 ) -> tuple[list[dict], dict[str, int]]:
     """Resolve every recorded call site into aggregated CALLS rows + stats.
 
-    Returns ``(rows, stats)`` where rows carry ``caller_qual/callee_qual``
-    (plus files, count, sorted lines) ready for the graph writer, and stats
-    report coverage: ``call_sites``, ``exact``, ``weak``, ``unresolved``,
-    ``ambiguous`` (subset of unresolved caused by >1 same-file name match).
-    Deterministic: iterate files sorted, aggregate per caller->callee pair,
-    sort rows by key.
+    Returns ``(rows, stats)`` where rows carry ``caller/callee file+qualname``
+    (plus count, sorted lines, weak flag) ready for the graph writer, and
+    stats report coverage: ``call_sites``, ``exact``, ``weak_unique``,
+    ``weak_module``, ``unresolved``, ``ambiguous`` (a subset of unresolved —
+    >1 non-class-scoped same-file name match). Deterministic: iterate files
+    sorted, aggregate per caller->callee pair, sort rows by key.
     """
     repo = _Repo(parsed_by_file, sorted(python_files))
     aggregated: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
-    stats = {"call_sites": 0, "exact": 0, "weak": 0, "unresolved": 0, "ambiguous": 0}
+    weak_flags: dict[tuple[str, str, str, str], bool] = {}
+    stats = {
+        "call_sites": 0,
+        "exact": 0,
+        "weak_unique": 0,
+        "weak_module": 0,
+        "unresolved": 0,
+        "ambiguous": 0,
+    }
 
     for path in sorted(parsed_by_file):
         module = parsed_by_file[path]
-        bindings = {binding.name: binding for binding in module.bindings}
         for call in module.calls:
             stats["call_sites"] += 1
-            hit = _resolve_call(repo, path, call.callee, call.caller, bindings, stats)
+            hit, weak = _resolve_call(repo, path, call.callee, call.caller, stats)
             if hit is None:
                 stats["unresolved"] += 1
                 continue
             key = (path, call.caller, hit[0], hit[1])
             aggregated[key].append(call.line)
+            weak_flags[key] = weak_flags.get(key, True) and weak
 
     rows = [
         {
@@ -306,6 +414,7 @@ def resolve_calls(
             "callee_qual": key[3],
             "count": len(lines),
             "lines": sorted(lines),
+            "weak": weak_flags[key],
         }
         for key, lines in sorted(aggregated.items())
     ]

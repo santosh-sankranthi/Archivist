@@ -1,30 +1,31 @@
-=== CALLS coverage (repo:flask) ===
-aggregated call relations: 765  |  call sites covered: 917.0
+=== CALLS coverage (repo:flask, post-review resolver v1.1) ===
+  relations=752  resolved sites=898  weak relations=142
 
-=== who calls url_for (cross-file, previously unresolved) ===
-  tests/test_helpers.py  ·  TestUrlFor.test_url_for_with_alternating_schemes  ·  x3
-  tests/test_helpers.py  ·  TestUrlFor.test_url_with_method  ·  x3
-  tests/test_basic.py  ·  test_route_decorator_custom_endpoint  ·  x3
-  tests/test_helpers.py  ·  TestUrlFor.test_url_for_with_scheme_not_external  ·  x2
-  tests/test_basic.py  ·  test_build_error_handler  ·  x2
-  tests/test_reqctx.py  ·  test_proper_test_request_context  ·  x2
-  tests/test_basic.py  ·  test_url_generation  ·  x2
-  tests/test_helpers.py  ·  TestUrlFor.test_url_for_with_anchor  ·  x1
+=== review fixes — verified in the live graph ===
+  tag dumps -> json package: src/flask/json/__init__.py::dumps
+  tag loads -> json package: src/flask/json/__init__.py::loads
+  test_client cli class: FlaskClient
+  json/ self-loops (expect only legit _untag_scan recursion): TaggedJSONSerializer._untag_scan  weak=false
+  TestRoutes.invoke edges (want 0): 0
+  removed luck-chains stay gone (want 0): 0
 
-=== top call fan-in (most-called symbols) ===
-  Flask  ·  src/flask/app.py  ·  88.0 calls / 66 callers
-  Blueprint  ·  src/flask/blueprints.py  ·  66.0 calls / 52 callers
-  url_for  ·  src/flask/helpers.py  ·  50.0 calls / 40 callers
-  Flask.test_client  ·  src/flask/app.py  ·  46.0 calls / 43 callers
-  render_template  ·  src/flask/templating.py  ·  41.0 calls / 40 callers
-  Flask.test_request_context  ·  src/flask/app.py  ·  40.0 calls / 32 callers
-  Flask.app_context  ·  src/flask/app.py  ·  27.0 calls / 26 callers
-  abort  ·  src/flask/helpers.py  ·  20.0 calls / 19 callers
+=== weak flag: guesses are flagged, strong answers filterable ===
+  sites on weak relations=160  sites on exact relations=738
+  sample weak edges (test fixtures resolving 'app.*' by naming luck):
+    test_proper_test_request_context -> Flask.test_request_context  (x5)
+    test_extended_flashing -> Flask.test_client  (x4)
+    TestSendfile.test_static_file -> Flask.send_static_file  (x4)
 
-=== deepest cross-module chains (3-hop: def -> caller -> caller) ===
-  10 distinct 3-node cross-file chains
-  Flask  ·  create_app -> SecureCookieSessionInterface
-  Flask.app_context  ·  celery_init_app.FlaskTask.__call__ -> AppContext
-  Flask.test_client  ·  client -> FlaskCliRunner
-  create_app  ·  app -> init_app
-  create_app  ·  app -> Flask
+=== fan-in, strong relations only (WHERE NOT c.weak) ===
+  src/flask/app.py::Flask  ·  88 calls / 66 callers
+  src/flask/blueprints.py::Blueprint  ·  66 calls / 52 callers
+  src/flask/helpers.py::url_for  ·  50 calls / 40 callers
+  src/flask/templating.py::render_template  ·  41 calls / 40 callers
+  src/flask/helpers.py::abort  ·  20 calls / 19 callers
+  examples/tutorial/flaskr/db.py::get_db  ·  17 calls / 16 callers
+
+=== all remaining self-loops (recursion vs flagged guesses) ===
+  src/flask/cli.py::FlaskGroup.get_command  weak=True
+  src/flask/cli.py::main  weak=True
+  src/flask/helpers.py::_split_blueprint_path  weak=False
+  src/flask/json/tag.py::TaggedJSONSerializer._untag_scan  weak=False

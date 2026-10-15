@@ -183,7 +183,8 @@ class GraphWriter:
         MATCH (not MERGE) on the endpoints on purpose: resolution only ever
         links symbols that exist, so a miss means an upstream bug — better
         silently-dropped rows than accidental stub nodes. ``c.lines`` keeps
-        the call sites; count = len(lines) for cheap ordering.
+        the call sites, ``count`` = len(lines), ``weak`` flags resolver
+        guesses (rings 3-4) so queries can down-rank or filter them.
         """
         self._batched(
             """
@@ -191,7 +192,8 @@ class GraphWriter:
             MATCH (s:Symbol {file: row.caller_file, qualname: row.caller_qual})
             MATCH (t:Symbol {file: row.callee_file, qualname: row.callee_qual})
             MERGE (s)-[c:CALLS]->(t)
-            SET c.count = row.count, c.lines = row.lines, c.run_id = $run_id
+            SET c.count = row.count, c.lines = row.lines, c.weak = row.weak,
+                c.run_id = $run_id
             """,
             rows,
             {"run_id": run_id},

@@ -46,11 +46,16 @@ class ImportBinding:
     remaining dotted path is filled in from the callee), while
     ``import a.b as c`` / ``from m import x [as y]`` bind the full target.
     Wildcard imports bind nothing (namespace unknown without the module).
+    ``scope`` records *where* the import lives: ``None`` = module level, else
+    the qualname of the enclosing def. Function-local imports are only
+    visible inside their own def (collapsing them file-wide resolved names
+    through the wrong target — review finding F2).
     """
 
     name: str
     target: str
     line: int
+    scope: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,8 +90,7 @@ def parse_python(source: str) -> ParsedModule:
     parsed = ParsedModule()
     _collect_defs(tree.body, prefix="", parent_kind="module", out=parsed.symbols)
     _collect_imports(tree, parsed.imports)
-    _collect_bindings(tree, parsed.bindings)
-    _CallVisitor(parsed.calls).visit(tree)
+    _ScopeVisitor(parsed.calls, parsed.bindings).visit(tree)
     # Sort for deterministic output regardless of visitor traversal order.
     parsed.calls.sort(key=lambda call: (call.line, call.callee))
     parsed.bindings.sort(key=lambda binding: (binding.line, binding.name))
@@ -95,7 +99,8 @@ def parse_python(source: str) -> ParsedModule:
 
 # Statement kinds that contain nested statement lists we must descend into,
 # so definitions behind `if TYPE_CHECKING:` / `try / except ImportError:` are
-# still discovered. TryStar covers `except*` blocks (Python 3.11+).
+# still discovered. TryStar covers `except*` blocks (Python 3.11+); Match
+# covers `match`/`case` bodies (Python 3.10+).
 _CONTAINER_STMTS: tuple[type[ast.stmt], ...] = (
     ast.If,
     ast.Try,
@@ -105,6 +110,7 @@ _CONTAINER_STMTS: tuple[type[ast.stmt], ...] = (
     ast.For,
     ast.AsyncFor,
     ast.While,
+    ast.Match,
 )
 
 
@@ -132,7 +138,11 @@ def _collect_defs(
 
 
 def _sub_bodies(node: ast.stmt) -> list[list[ast.stmt]]:
-    """Statement lists nested inside a container statement."""
+    """Statement lists nested inside a container statement.
+
+    Covers ``handlers`` (Try) and ``cases`` (Match) beyond the plain body
+    attributes, so defs inside those blocks are found too.
+    """
     bodies: list[list[ast.stmt]] = []
     for attr in ("body", "orelse", "finalbody"):
         value = getattr(node, attr, None)
@@ -140,11 +150,14 @@ def _sub_bodies(node: ast.stmt) -> list[list[ast.stmt]]:
             bodies.append(value)
     for handler in getattr(node, "handlers", None) or []:
         bodies.append(handler.body)
+    for case in getattr(node, "cases", None) or []:
+        bodies.append(case.body)
     return bodies
 
 
 def _collect_imports(tree: ast.Module, out: list[ImportRef]) -> None:
-    """Collect import targets in source order (``ast.walk`` = breadth-first)."""
+    """Collect import targets via ``ast.walk`` (breadth-first traversal order
+    carries no meaning; line numbers are kept and order is not relied on)."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -152,31 +165,6 @@ def _collect_imports(tree: ast.Module, out: list[ImportRef]) -> None:
         elif isinstance(node, ast.ImportFrom):
             module = "." * node.level + (node.module or "")
             out.append(ImportRef(module=module, line=node.lineno))
-
-
-def _collect_bindings(tree: ast.Module, out: list[ImportBinding]) -> None:
-    """Collect the names import statements make available in this module."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.asname:
-                    out.append(ImportBinding(alias.asname, alias.name, node.lineno))
-                else:
-                    top = alias.name.split(".", 1)[0]
-                    out.append(ImportBinding(top, top, node.lineno))
-        elif isinstance(node, ast.ImportFrom):
-            base = "." * node.level + (node.module or "")
-            prefix = base + "." if base and not base.endswith(".") else base
-            for alias in node.names:
-                if alias.name == "*":
-                    continue
-                out.append(
-                    ImportBinding(
-                        name=alias.asname or alias.name,
-                        target=f"{prefix}{alias.name}",
-                        line=node.lineno,
-                    )
-                )
 
 
 def _dotted(node: ast.expr) -> str | None:
@@ -196,16 +184,19 @@ def _dotted(node: ast.expr) -> str | None:
     return None
 
 
-class _CallVisitor(ast.NodeVisitor):
-    """Record call sites, tracking the enclosing def/class scope stack.
+class _ScopeVisitor(ast.NodeVisitor):
+    """One walk, recording call sites and import bindings with their scope.
 
-    Mirrors ``_collect_defs`` qualname rules so every recorded caller names a
-    real Symbol. Descends through decorators, defaults and comprehensions too
-    — a call is a call, wherever it syntactically sits inside the def.
+    Both need the same thing: the qualname of the nearest enclosing def/class
+    (module level = no scope). Mirrors ``_collect_defs`` qualname rules, so
+    recorded callers and binding scopes always name real Symbols. Imports
+    inside a def are recorded with that def's qualname as ``scope`` so the
+    resolver can keep them function-local (review finding F2).
     """
 
-    def __init__(self, out: list[CallRef]) -> None:
-        self._out = out
+    def __init__(self, calls: list[CallRef], bindings: list[ImportBinding]) -> None:
+        self._calls = calls
+        self._bindings = bindings
         self._scope: list[str] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -216,6 +207,30 @@ class _CallVisitor(ast.NodeVisitor):
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self._scoped(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.asname:
+                self._record(alias.asname, alias.name, node.lineno)
+            else:
+                top = alias.name.split(".", 1)[0]
+                self._record(top, top, node.lineno)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        base = "." * node.level + (node.module or "")
+        prefix = base + "." if base and not base.endswith(".") else base
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            self._record(
+                alias.asname or alias.name, f"{prefix}{alias.name}", node.lineno
+            )
+
+    def _record(self, name: str, target: str, line: int) -> None:
+        scope = ".".join(self._scope) if self._scope else None
+        self._bindings.append(
+            ImportBinding(name=name, target=target, line=line, scope=scope)
+        )
 
     def _scoped(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
@@ -228,7 +243,7 @@ class _CallVisitor(ast.NodeVisitor):
         if self._scope:
             callee = _dotted(node.func)
             if callee:
-                self._out.append(
+                self._calls.append(
                     CallRef(
                         callee=callee, line=node.lineno, caller=".".join(self._scope)
                     )

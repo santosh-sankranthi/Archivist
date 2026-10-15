@@ -123,6 +123,62 @@ REEXPORT = {
     "app2.py": "from pkg import Widget\n\n\ndef make():\n    return Widget()\n",
 }
 
+CLASS_SCOPE = """\
+class Tagged:
+    def dumps(self, value):
+        return dumps(value)
+
+    def helper(self):
+        pass
+
+    def run(self):
+        helper()
+"""
+
+CLASS_SCOPE_BINDING = {
+    "pkg/json.py": "def dumps(value):\n    return value\n",
+    "pkg/tag.py": (
+        "from .json import dumps\n"
+        "\n"
+        "\n"
+        "class Tagged:\n"
+        "    def dumps(self, value):\n"
+        "        return dumps(value)\n"
+    ),
+}
+
+SCOPED_BINDINGS = {
+    "pkg/testing.py": "class A:\n    pass\n\n\nclass B:\n    pass\n",
+    "pkg/app.py": (
+        "class App:\n"
+        "    def test_a(self):\n"
+        "        from .testing import A as cls\n"
+        "        return cls()\n"
+        "\n"
+        "    def test_b(self):\n"
+        "        from .testing import B as cls\n"
+        "        return cls()\n"
+    ),
+}
+
+STRICT_ROOT = {
+    "pkg/__init__.py": "",
+    "pkg/json.py": "def dumps(value):\n    return value\n",
+    "app.py": "import json\n\n\ndef run():\n    return json.dumps(1)\n",
+}
+
+MATCH_DEFS = """\
+def dispatch(x):
+    match x:
+        case 1:
+            def inner():
+                return 1
+
+            return inner()
+        case _:
+            return 0
+"""
+
 
 def _resolve(sources: dict[str, str]):
     parsed = {path: pyparse.parse_python(src) for path, src in sources.items()}
@@ -158,7 +214,8 @@ def test_same_file_scoped_resolution():
     assert stats == {
         "call_sites": 8,
         "exact": 7,
-        "weak": 0,
+        "weak_unique": 0,
+        "weak_module": 0,
         "unresolved": 1,
         "ambiguous": 0,
     }
@@ -193,7 +250,8 @@ def test_unique_name_is_weak():
     assert stats == {
         "call_sites": 1,
         "exact": 0,
-        "weak": 1,
+        "weak_unique": 1,
+        "weak_module": 0,
         "unresolved": 0,
         "ambiguous": 0,
     }
@@ -230,3 +288,66 @@ def test_reexport_via_package_init():
     }
     assert stats["exact"] == 2
     assert stats["unresolved"] == 0
+
+
+def test_bare_names_never_leak_into_class_scope():
+    """Review F1: ``dumps()``/``helper()`` in a class must not resolve to
+    class members; without a binding they stay unresolved."""
+    edges, stats = _one_file(CLASS_SCOPE)
+    assert edges == set()
+    assert stats == {
+        "call_sites": 2,
+        "exact": 0,
+        "weak_unique": 0,
+        "weak_module": 0,
+        "unresolved": 2,
+        "ambiguous": 0,
+    }
+
+
+def test_binding_wins_over_class_scope_leak():
+    """Review F1: with ``from .json import dumps``, the bare call resolves to
+    the imported symbol (not the sibling method) — tag.py's real pattern."""
+    edges, stats = _resolve(CLASS_SCOPE_BINDING)
+    assert edges == {("pkg/tag.py", "Tagged.dumps", "pkg/json.py", "dumps", 1)}
+    assert stats["exact"] == 1
+    assert stats["unresolved"] == 0
+
+
+def test_function_local_bindings_stay_local():
+    """Review F2: two ``... as cls`` imports in different methods resolve to
+    their own targets, not to whichever import the tree walk saw last."""
+    edges, stats = _resolve(SCOPED_BINDINGS)
+    assert edges == {
+        ("pkg/app.py", "App.test_a", "pkg/testing.py", "A", 1),
+        ("pkg/app.py", "App.test_b", "pkg/testing.py", "B", 1),
+    }
+    assert stats["exact"] == 2
+    assert stats["unresolved"] == 0
+
+
+def test_strict_import_targets_skip_packaged_roots():
+    """A packaged prefix is not a sys.path root: ``json.dumps`` must not
+    resolve into ``pkg/json.py`` when ``pkg`` is a package (it would resolve
+    without the package marker)."""
+    edges, stats = _resolve(STRICT_ROOT)
+    assert edges == set()
+    assert stats["unresolved"] == 1
+
+    without_package_marker = {
+        key: value for key, value in STRICT_ROOT.items() if key != "pkg/__init__.py"
+    }
+    edges2, _ = _resolve(without_package_marker)
+    assert ("app.py", "run", "pkg/json.py", "dumps", 1) in edges2
+
+
+def test_defs_and_calls_inside_match_statements():
+    """Review F4: defs nested in ``match``/``case`` bodies are collected and
+    resolve as scope-valid candidates."""
+    parsed = pyparse.parse_python(MATCH_DEFS)
+    quals = {symbol.qualname for symbol in parsed.symbols}
+    assert {"dispatch", "dispatch.inner"} <= quals
+
+    edges, stats = _one_file(MATCH_DEFS)
+    assert edges == {("app.py", "dispatch", "app.py", "dispatch.inner", 1)}
+    assert stats["exact"] == 1

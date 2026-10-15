@@ -120,7 +120,9 @@ def ingest(
     call_rows, call_stats = resolve_calls(parsed_by_file, python_files)
     log(
         f"      edges={len(call_rows)} exact={call_stats['exact']} "
-        f"weak={call_stats['weak']} unresolved={call_stats['unresolved']} "
+        f"weak_unique={call_stats['weak_unique']} "
+        f"weak_module={call_stats['weak_module']} "
+        f"unresolved={call_stats['unresolved']} "
         f"(ambiguous={call_stats['ambiguous']})"
     )
 
@@ -237,15 +239,15 @@ SMOKE_QUERIES: dict[str, str] = {
     "most-called symbols (fan-in)": """
         MATCH (caller:Symbol)-[c:CALLS]->(callee:Symbol)
         RETURN callee.qualname AS callee, callee.file AS file,
-               sum(c.count) AS calls, count(DISTINCT caller) AS callers
-        ORDER BY sum(c.count) DESC LIMIT 10
+               toInteger(sum(c.count)) AS calls, count(DISTINCT caller) AS callers
+        ORDER BY calls DESC LIMIT 10
     """,
     "cross-file calls (top pairs)": """
         MATCH (a:Symbol)-[c:CALLS]->(b:Symbol)
         WHERE a.file <> b.file
         RETURN a.qualname AS caller, b.qualname AS callee,
-               sum(c.count) AS calls
-        ORDER BY sum(c.count) DESC LIMIT 10
+               toInteger(sum(c.count)) AS calls
+        ORDER BY calls DESC LIMIT 10
     """,
 }
 

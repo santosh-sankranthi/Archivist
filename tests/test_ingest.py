@@ -226,7 +226,8 @@ def test_ingest_calls_edges(tmp_path: Path, falkordb_or_skip, temp_graph: str):
     assert stats.call_stats == {
         "call_sites": 3,
         "exact": 3,
-        "weak": 0,
+        "weak_unique": 0,
+        "weak_module": 0,
         "unresolved": 0,
         "ambiguous": 0,
     }
