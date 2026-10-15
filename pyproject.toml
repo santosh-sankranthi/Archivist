@@ -1,0 +1,6 @@
+# Tooling config for the Archivist dev repo.
+#
+# pytest is scoped to our own tests/ so that bare `pytest` runs from the repo
+# root never try to collect the sample repos cloned under data/.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
