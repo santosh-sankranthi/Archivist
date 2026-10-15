@@ -14,6 +14,17 @@ from falkordb import FalkorDB
 
 _BATCH = 500
 
+# Lookup indexes the read tools rely on. M2-RESEARCH measured that repo:flask
+# shipped with none, while name/path/sha lookups are the hot path of every
+# tool; ingest ensures them after each run (idempotent, creates are async).
+INDEXES: list[tuple[str, str]] = [
+    ("range Symbol.name", "CREATE INDEX FOR (s:Symbol) ON (s.name)"),
+    ("range File.path", "CREATE INDEX FOR (f:File) ON (f.path)"),
+    ("range Commit.sha", "CREATE INDEX FOR (c:Commit) ON (c.sha)"),
+    ("range Module.name", "CREATE INDEX FOR (m:Module) ON (m.name)"),
+    ("fulltext Symbol.name", "CREATE FULLTEXT INDEX FOR (s:Symbol) ON (s.name)"),
+]
+
 
 class GraphWriter:
     """Thin wrapper around one FalkorDB graph with ingest-specific writes."""
@@ -62,6 +73,30 @@ class GraphWriter:
 
     def smoke(self, query: str) -> list[list]:
         return self.graph.query(query).result_set
+
+    def ensure_indexes(self) -> dict[str, list[str]]:
+        """Create the lookup indexes the read tools rely on (idempotent).
+
+        FalkorDB rejects re-creating an existing index with an "already
+        indexed" error — on re-runs that *is* the success signal.
+        """
+        created: list[str] = []
+        existing: list[str] = []
+        for name, cypher in INDEXES:
+            try:
+                self._run(cypher)
+                created.append(name)
+            except Exception as exc:
+                if "already indexed" in str(exc).lower():
+                    existing.append(name)
+                else:
+                    raise
+        return {"created": created, "existing": existing}
+
+    def explain(self, query: str) -> list[str]:
+        """Execution plan for a read query (dev checks / docs)."""
+        plan = self._db.execute_command("GRAPH.EXPLAIN", self.graph_name, query)
+        return [str(line) for line in plan]
 
     # -- write phases (order matters: commits before HEAD edge, files before
     #    symbols/modifications so stubs are only created for history-only
@@ -114,7 +149,8 @@ class GraphWriter:
             UNWIND $rows AS row
             MERGE (c:Commit {sha: row.sha})
             SET c.author_name = row.author_name, c.ts = row.ts,
-                c.summary = row.summary, c.message = row.message, c.run_id = $run_id
+                c.seq = row.seq, c.summary = row.summary,
+                c.message = row.message, c.run_id = $run_id
             MERGE (a:Author {email: row.author_email})
             SET a.name = row.author_name
             MERGE (a)-[:AUTHORED]->(c)

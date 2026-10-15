@@ -4,6 +4,8 @@ The integration fixtures live here (not in one test module) so every
 integration test can share one throwaway graph and one skip rule.
 """
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +16,77 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from archivist.graph import GraphWriter
+
+
+def git_commit(
+    repo: Path, *args: str, name: str = "Dev One", email: str = "dev@example.com"
+) -> None:
+    """Run one git command with a deterministic author identity."""
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
+    }
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "commit.gpgsign=false", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+CHAIN_UTIL = """\
+def leaf():
+    return 2
+
+
+def helper():
+    return leaf()
+"""
+
+CHAIN_APP = """\
+from util import helper as h
+
+
+def main():
+    return h()
+
+
+def unused():
+    pass
+"""
+
+
+@pytest.fixture()
+def chain_repo(tmp_path: Path) -> Path:
+    """Tiny repo with call chain main -> helper -> leaf and two app.py authors."""
+    repo = tmp_path / "chain"
+    repo.mkdir()
+    git_commit(repo, "init", "-q", "-b", "main")
+    (repo / "util.py").write_text(CHAIN_UTIL)
+    (repo / "app.py").write_text(CHAIN_APP)
+    git_commit(repo, "add", ".")
+    git_commit(repo, "commit", "-q", "-m", "add app and util")
+    # Dev Two makes the next two app.py changes -> most recent owner.
+    for body, message in (
+        ("\n\ndef extra():\n    return 3\n", "extend app with extra"),
+        ("\n\ndef extra():\n    return 4\n", "bump extra"),
+    ):
+        (repo / "app.py").write_text(CHAIN_APP + body)
+        git_commit(repo, "add", ".", name="Dev Two", email="two@example.com")
+        git_commit(
+            repo,
+            "commit",
+            "-q",
+            "-m",
+            message,
+            name="Dev Two",
+            email="two@example.com",
+        )
+    return repo
 
 
 @pytest.fixture(scope="session")

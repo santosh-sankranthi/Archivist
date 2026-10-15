@@ -40,6 +40,7 @@ class IngestStats:
     shallow: bool
     counts: dict = field(default_factory=dict)
     call_stats: dict = field(default_factory=dict)
+    indexes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -145,6 +146,7 @@ def ingest(
                 "author_name": commit.author_name,
                 "author_email": commit.author_email,
                 "ts": commit.ts,
+                "seq": commit.seq,
                 "summary": commit.summary,
                 "message": commit.message,
             }
@@ -194,6 +196,11 @@ def ingest(
         writer.prune(run_id)
     else:
         log("[5/6] prune skipped")
+    indexes = writer.ensure_indexes()
+    log(
+        "      indexes: "
+        f"created={indexes['created'] or '-'} existing={indexes['existing'] or '-'}"
+    )
 
     counts = writer.stats()
     duration = time.monotonic() - started
@@ -209,6 +216,7 @@ def ingest(
         shallow=shallow,
         counts=counts,
         call_stats=call_stats,
+        indexes=indexes,
     )
 
 

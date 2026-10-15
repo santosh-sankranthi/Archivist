@@ -38,6 +38,7 @@ class GitCommit:
     parents: list[str]
     summary: str
     message: str = ""
+    seq: int = 0  # position in git log order (0 = newest); stable tie-break
     changes: list[FileChange] = field(default_factory=list)
 
 
@@ -83,6 +84,7 @@ def collect_history(repo: Path) -> list[GitCommit]:
             ts=int(ts),
             parents=parents.split(),
             summary=summary,
+            seq=len(commits),
         )
         for line in lines[1:]:
             match = _NUMSTAT_RE.match(line)

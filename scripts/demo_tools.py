@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))  # runnable without an install
 
-from archivist.tools import RepoGraph  # noqa: E402
+from archivist.tools import RepoGraph
 
 
 def main() -> None:

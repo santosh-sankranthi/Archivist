@@ -1,0 +1,48 @@
+M2b — tool-calling loop over repo:flask (scripted model, live graph)
+
+Q: Who should review changes to src/flask/blueprints.py, and what does the recent history say?
+
+tool calls:
+  1. owners({"path": "src/flask/blueprints.py"}) -> ok, 5 rows, 2 ms
+  2. file_history({"path": "src/flask/blueprints.py", "limit": 6}) -> ok, 6 rows, 1 ms
+  3. callers({"symbol": "Blueprint", "depth": 1, "limit": 5}) -> ambiguous, 2 rows, 1 ms
+  4. callers({"symbol": "Blueprint", "file": "src/flask/blueprints.py", "limit": 5}) -> ok, 5 rows, 5 ms
+
+owners -> reviewer candidates ranked by commits touching the file:
+  David Lord       commits=29
+  pgjones          commits=17
+  Alex Hedges      commits=2
+  bre-17387639     commits=1
+  Evgeny Mozhaev   commits=1
+
+file_history -> newest first (stable order incl. same-second commits):
+  9e831e915f  +1/-1  fix pyright type errors
+  28d5a4d718  +21/-22  add encoding parameter to open_resource
+  6000e80acf  +1/-1  address mypy strict findings
+  5fdce4c331  +38/-0  Don't set the cli attribute in the sansio scaffold
+  0ec7f713d6  +91/-0  Split the App and Blueprint into Sansio and IO parts
+  a64588f87a  +0/-626  Move file to sansio
+
+callers('Blueprint') -> ambiguous after the sansio split; candidates, no guessing:
+  src/flask/blueprints.py:18  Blueprint
+  src/flask/sansio/blueprints.py:119  Blueprint
+
+callers('Blueprint', file=src/flask/blueprints.py) -> retried, scoped:
+  [1 hop] tests/test_async.py: _async_app -> Blueprint
+  [1 hop] tests/test_async.py: test_async_before_after_request -> Blueprint
+  [1 hop] tests/test_basic.py: test_inject_blueprint_url_defaults -> Blueprint
+  [1 hop] tests/test_blueprints.py: test_add_template_filter -> Blueprint
+  [1 hop] tests/test_blueprints.py: test_add_template_filter_with_name -> Blueprint
+
+answer:
+  [scripted closing for a mechanics demo — a real model composes this line from the results above once ARCHIVIST_LLM_* is configured]
+
+trace: 5 queries · 8 ms · 5 LLM calls
+
+sample query from the trace (every tool call is auditable like this):
+  [owners] MATCH (c:Commit)-[:MODIFIED]->(f:File {path: $path}) MATCH (a:Author)-[:AUTHORED]->(c) WITH a, count(DISTINCT c) AS commits, max(c.ts) AS last_ts, min(c.ts) AS first_ts RETURN a.name AS name, a.email AS email, commits, last_ts, first_ts ORDER BY commits DESC, last_ts DESC LIMIT $limit
+  params={"path": "src/flask/blueprints.py", "limit": 5}  (1 ms)
+
+note: tool results and trace lines above are real; scripted = which
+calls were made and the closing line. scripts/ask.py drives the same
+loop with a real OpenAI-compatible model (ARCHIVIST_LLM_* env vars).

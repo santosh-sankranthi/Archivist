@@ -6,7 +6,7 @@ One graph per repo (e.g. `repo:flask`). Multi-repo = separate graphs (multi-tena
 | Label | Key props |
 |---|---|
 | `Repo` | name, path, head, updated_at |
-| `Commit` | sha, author_name, ts, message, summary |
+| `Commit` | sha, author_name, ts, message, summary, seq (git-log position; stable tie-break for same-second timestamps) |
 | `Author` | name, email, commits_count |
 | `File` | path, lang, loc |
 | `Symbol` | name, kind (function/class/method), qualname, file, lineno |

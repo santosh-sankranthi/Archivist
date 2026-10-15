@@ -16,6 +16,8 @@ Design contract (see DECISIONS.md D-010):
   impressive ones — unless the caller opts in with ``include_weak=True``.
 * Rows are JSON-able plain structures; no FalkorDB client objects leak out,
   so envelopes can go straight into prompts, CLI rendering, or the UI.
+* Every query runs through ``GRAPH.RO_QUERY`` — the read path is enforced
+  read-only by the database itself, not by convention (M2-RESEARCH).
 """
 
 from __future__ import annotations
@@ -68,7 +70,7 @@ class RepoGraph:
     def _q(self, cypher: str, params: dict | None = None) -> list[dict]:
         """Run one read query, record it in the trace, return row dicts."""
         t0 = time.perf_counter()
-        result = self._graph.query(cypher, params or {})
+        result = self._graph.ro_query(cypher, params or {})
         columns = [header[1] for header in result.header]
         rows = [dict(zip(columns, row, strict=True)) for row in result.result_set]
         self.trace.append(
@@ -382,7 +384,7 @@ class RepoGraph:
             RETURN c.sha AS sha, c.ts AS ts, c.summary AS summary,
                    coalesce(c.author_name, '') AS author,
                    m.added AS added, m.removed AS removed
-            ORDER BY c.ts DESC, c.sha DESC
+            ORDER BY c.ts DESC, c.seq ASC
             LIMIT $limit
             """,
             params,
@@ -431,7 +433,7 @@ class RepoGraph:
             WHERE toLower(coalesce(c.message, '')) CONTAINS toLower($text)
             RETURN c.sha AS sha, c.ts AS ts, c.summary AS summary,
                    coalesce(c.author_name, '') AS author
-            ORDER BY c.ts DESC, c.sha DESC
+            ORDER BY c.ts DESC, c.seq ASC
             LIMIT $limit
             """,
             params,
