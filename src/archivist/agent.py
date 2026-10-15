@@ -307,15 +307,36 @@ class Agent:
         repo_label: str | None = None,
         memory: Any = None,
         episode_id: str | None = None,
+        system_prompt: str | None = None,
+        tools: list[str] | None = None,
     ) -> None:
+        """``system_prompt`` overrides the default text; ``tools`` restricts
+        the tool set (both are how ``archivist.crew`` builds role-scoped
+        agents — least privilege per role, enforced here, not by convention).
+        """
         self.repo = repo
         self.llm = llm
         self.max_steps = max(1, int(max_steps))  # 0/negatives would run nothing
         self.repo_label = repo_label or getattr(repo, "graph_name", "repo")
         self.memory = memory  # optional memory.Memory; enables the `remember` tool
         self.episode_id = episode_id  # provenance for facts this run records
+        self.system_prompt = system_prompt
+        if tools is None:
+            self.tool_names = set(TOOL_METHODS)
+        else:
+            unknown = sorted(set(tools) - set(TOOL_METHODS))
+            if unknown:
+                raise ValueError(f"unknown tool names: {unknown}")
+            self.tool_names = set(tools)
+        self.schemas = [
+            schema
+            for schema in TOOL_SCHEMAS
+            if schema["function"]["name"] in self.tool_names
+        ]
 
     def system_message(self) -> dict:
+        if self.system_prompt is not None:
+            return {"role": "system", "content": self.system_prompt}
         return {"role": "system", "content": SYSTEM_PROMPT.format(repo=self.repo_label)}
 
     def ask(self, question: str) -> Answer:
@@ -331,7 +352,7 @@ class Agent:
                 messages.append({"role": "system", "content": FINALIZE_NUDGE})
             try:
                 response = self.llm.chat(
-                    messages, tools=None if finalizing else TOOL_SCHEMAS
+                    messages, tools=None if finalizing else self.schemas
                 )
             except LLMError as exc:
                 answer.error = str(exc)
@@ -411,6 +432,18 @@ class Agent:
                         "status": "error",
                         "error": step["error"],
                         "available": sorted(TOOL_METHODS),
+                    }
+                ),
+                step,
+            )
+        if call.name not in self.tool_names:
+            step["error"] = f"tool {call.name!r} is not available to this agent"
+            return (
+                payload_for(
+                    {
+                        "status": "error",
+                        "error": step["error"],
+                        "available": sorted(self.tool_names),
                     }
                 ),
                 step,

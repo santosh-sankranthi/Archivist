@@ -137,7 +137,7 @@ def main() -> int:
         else Memory(graph=args.graph, host=args.host, port=args.port)
     )
     episode_id = None
-    started = int(time.time())
+    started = time.perf_counter()
     if memory is not None:
         head = (repo.query("MATCH (r:Repo) RETURN r.head AS head")["results"] or [{}])[
             0
@@ -164,7 +164,7 @@ def main() -> int:
             llm_calls=answer.llm_calls,
             steps=len(answer.steps),
             queries=len(answer.queries),
-            duration_s=int(time.time()) - started,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
 
     if args.json:

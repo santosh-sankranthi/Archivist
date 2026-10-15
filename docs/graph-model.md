@@ -27,6 +27,9 @@ One graph per repo (e.g. `repo:flask`). Multi-repo = separate graphs (multi-tena
 - `(Episode)-[:PRODUCED]->(Fact)` — which session/run established a memory fact
 - `(Fact)-[:ABOUT]->(Symbol|File|Commit)` — optional anchors, resolved by key
 - `(Fact)-[:SUPERSEDES]->(Fact)` — lineage when a claim replaces another
+- `(Episode)-[:HANDOFF {note, created_at}]->(Episode)` — work passed between
+  sessions (M3b crew phases: planner → investigator → verifier); the
+  coordination history is queryable like everything else
 
 ## Memory model (M3a) — episodes + bi-temporal facts
 
@@ -45,6 +48,11 @@ now (open windows, default), full history (`include_invalid=true`), and
 "true at T" (`as_of`, event time). Fact ids are content-addressed over
 episode + normalized text unless given explicitly: remembering the same
 claim twice converges, same rule as ingest.
+
+Crew runs (M3b) record each phase as an `agent-session` episode with
+`role` (planner/investigator/verifier) and `run` props, and link consecutive
+phases with `HANDOFF` edges carrying the passing note — so "who worked on
+this, in what order, passing what" is one query away.
 
 ## Rules
 - Re-ingest = `MERGE` + prune (idempotent).

@@ -7,10 +7,11 @@ a codebase + its git history into a living graph, answers multi-hop questions
 with traceable reasoning paths, takes actions, remembers across sessions, and
 coordinates multiple agents over shared graph state.
 
-Status: **M3 — memory layer** (ingest pipeline repeatable & idempotent;
+Status: **M3 — memory + multi-agent** (ingest pipeline repeatable & idempotent;
 read-only graph tool suite with envelope+trace contract; tool-calling agent
 loop with auditable traces; M3a: episodes + bi-temporal facts — sessions
-recall each other, invalidate-don't-delete — see `docs/demo/`).
+recall each other, invalidate-don't-delete; M3b: planner → investigator →
+verifier crew with handoffs as graph state — see `docs/demo/`).
 
 ## Quickstart (dev)
 
@@ -64,5 +65,23 @@ and `recall` them later — facts carry bi-temporal validity windows, and a
 superseded fact is closed, never deleted. `--no-memory` skips recording.
 Mechanics transcript: `docs/demo/m3a-memory.txt` (scripted calls, live
 graph, a second session recalling the first).
+
+## Multi-agent crew (M3b)
+
+One question, three roles over the same graph: the **planner** drafts an
+executable investigation plan, the **investigator** runs it with the full
+tool suite, and the **verifier** re-runs the decisive checks and owns the
+final answer. Role tool scopes are enforced, not suggested (the verifier
+cannot write memory); each phase is recorded as an `agent-session` episode
+and the handoffs are `(:Episode)-[:HANDOFF]->(:Episode)` edges — the crew's
+coordination history is queryable like everything else.
+
+```bash
+python scripts/crew.py "what breaks if url_for changes, and who should review it?"
+```
+
+Mechanics transcript: `docs/demo/m3b-handoffs.txt` (scripted model, live
+graph: plan → investigation → independent re-checks, handoff chain read
+back out of the graph).
 
 > Built during the Graph Hacks event window (Oct 15–18, 2026).

@@ -37,7 +37,8 @@ _MAX_REFS = 12  # per fact; more likely means a caller bug than a real claim
 _PROP_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def _stamp(ts: int) -> str:
+def stamp_utc(ts: int) -> str:
+    """Compact UTC timestamp for generated ids (``20261015T231500Z``)."""
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
@@ -66,7 +67,7 @@ class Memory:
     """Write path for agent memory on one graph (default ``repo:flask``).
 
     Deliberately small and explicit: record an episode, remember a fact,
-    invalidate a fact, supersede a fact. Retrieval lives in
+    invalidate a fact, supersede a fact, link a handoff. Retrieval lives in
     ``RepoGraph.recall``; pruning does not exist (invalidate-don't-delete).
     """
 
@@ -98,7 +99,7 @@ class Memory:
         (e.g. finishing an agent session) only updates the given props.
         """
         now = self.now()
-        episode_id = id or f"{kind}:{_stamp(ts or now)}:{uuid4().hex[:8]}"
+        episode_id = id or f"{kind}:{stamp_utc(ts or now)}:{uuid4().hex[:8]}"
         sets, params = _episode_sets(props)
         self._graph.query(
             f"""
@@ -117,6 +118,28 @@ class Memory:
             },
         )
         return episode_id
+
+    def link_handoff(
+        self, from_episode: str, to_episode: str, *, note: str | None = None
+    ) -> bool:
+        """Mark work passing from one session to the next: ``(a)-[:HANDOFF]->(b)``.
+
+        The crew's coordination history is therefore graph state like
+        everything else: which agent handed what to whom is queryable after
+        the fact, not buried in logs. Idempotent (MERGE); returns False when
+        either episode is missing so callers can tell an unwired handoff from
+        a recorded one instead of assuming it stuck.
+        """
+        rows = self._graph.query(
+            """
+            MATCH (a:Episode {id: $a}), (b:Episode {id: $b})
+            MERGE (a)-[h:HANDOFF]->(b)
+            SET h.note = $note, h.created_at = $now
+            RETURN h.created_at AS created_at
+            """,
+            {"a": from_episode, "b": to_episode, "note": note, "now": self.now()},
+        ).result_set
+        return bool(rows)
 
     # -- facts -------------------------------------------------------------
 

@@ -1,0 +1,60 @@
+M3b — multi-agent crew over repo:flask (scripted model, live graph)
+
+A question goes through planner → investigator → verifier; each phase
+is a recorded session and the handoffs are graph edges — the chain is
+queried back from the graph at the end.
+
+Q: What should we know before changing flask.helpers.url_for — who calls it, and who should review the change?
+
+== phase 1/3 · planner ==
+  overview   -> ok (84 ms)
+  [scripted plan]
+    Objective: assess the blast radius of changing flask.helpers.url_for and the review routing for src/flask/helpers.py.
+    Steps: 1. callers('url_for', depth 2) — impact, weak edges excluded. 2. owners('src/flask/helpers.py') — who has commit authority.
+    Verification: re-run callers depth 1 and re-check the top reviewer.
+
+  handoff → investigator: "Objective: assess the blast radius of changing flask.helpers.url_for and the review routing for src/flask/helpers.py. Steps: 1. callers('url_for', depth 2) — impact, weak edges excluded. 2. owners('src/flask/helpers.py') — who has commit a…" (edge written)
+
+== phase 2/3 · investigator ==
+  callers    -> ok (40 rows, 8 ms)
+      note: target = url_for
+      note: 10 caller(s) hidden by the weak-edge filter — pass include_weak=true to include
+  owners     -> ok (3 rows, 2 ms)
+  [scripted closing] [scripted closing — a real model writes this from the results above: url_for fans in from 40 weak-free callers within 2 hops; primary review candidate is David Lord (58 commits on src/flask/helpers.py).]
+
+  url_for callers (weak excluded) — first chains:
+    [1 hop] examples/tutorial/flaskr/auth.py: login
+    [1 hop] examples/tutorial/flaskr/auth.py: login_required.wrapped_view
+    [1 hop] examples/tutorial/flaskr/auth.py: logout
+    [1 hop] examples/tutorial/flaskr/auth.py: register
+  owners(src/flask/helpers.py) -> David Lord (58), pgjones (10), Grey Li (2)
+
+  handoff → verifier: "[scripted closing — a real model writes this from the results above: url_for fans in from 40 weak-free callers within 2 hops; primary review candidate is David Lord (58 commits on src/flask/helpers.py).]" (edge written)
+
+== phase 3/3 · verifier ==
+  callers    -> ok (40 rows, 6 ms)
+      note: target = url_for
+  owners     -> ok (3 rows, 1 ms)
+
+  re-check: same depth-1 query, independent run:
+    [1 hop] examples/tutorial/flaskr/auth.py: login
+    [1 hop] examples/tutorial/flaskr/auth.py: login_required.wrapped_view
+    [1 hop] examples/tutorial/flaskr/auth.py: logout
+  reviewer re-confirmed: David Lord (58 commits, last 1791380834)
+
+== final answer (verifier-owned) ==
+  [scripted closing — the verifier's verdict, composed from its own re-runs: confirmed — 40 direct callers weak-free (re-ran depth 1); reviewer re-checked: David Lord, 58 commits. Limitation: the resolver sees static call sites only, so the count is a lower bound.]
+
+== the handoff chain, queried back from the graph ==
+  planner       → investigator  note: "Objective: assess the blast radius of changing flask.helpers.url_for and…"
+  investigator  → verifier      note: "[scripted closing — a real model writes this from the results above: url…"
+
+== episodes recorded for this run ==
+  demo:crew:run-1:planner          planner       llm_calls=2 steps=1 queries=3
+  demo:crew:run-1:investigator     investigator  llm_calls=3 steps=2 queries=4
+  demo:crew:run-1:verifier         verifier      llm_calls=3 steps=2 queries=4
+
+notes: scripted = which calls were made and the closing lines; every
+query, row count and note above is real (repo:flask). The crew's
+coordination history is graph state — episodes + HANDOFF edges — so
+"who worked on this, in what order, passing what" is one query away.
