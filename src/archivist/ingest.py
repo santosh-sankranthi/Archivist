@@ -1,8 +1,9 @@
 """Ingest orchestration: repository tree + git history -> FalkorDB graph.
 
-v0 (M1b) scope: files, Python symbols/imports, commits, authors, and
-commit->file modification stats. Cross-file resolution (CALLS, package
-definitions) is deliberately left for M1c/M2 — see docs/graph-model.md.
+Scope: files, Python symbols/imports/calls, commits, authors, and
+commit->file modification stats. Call resolution (M1c) is best-effort,
+name-based — see ``archivist.calls`` for the rules and
+``docs/graph-model.md`` §CALLS for the known gaps.
 
 All writes are idempotent MERGEs plus a run-stamp prune, so `ingest()` can be
 re-run at any time: the graph converges to the repo's current state.
@@ -18,10 +19,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from archivist.calls import resolve_calls
 from archivist.files import iter_files
 from archivist.gitinfo import collect_history, head_sha, is_shallow
 from archivist.graph import GraphWriter
-from archivist.pyparse import parse_python
+from archivist.pyparse import ParsedModule, parse_python
 
 
 @dataclass
@@ -37,6 +39,7 @@ class IngestStats:
     parse_failures: int
     shallow: bool
     counts: dict = field(default_factory=dict)
+    call_stats: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -72,13 +75,14 @@ def ingest(
     log(f"ingest: repo={repo}")
     log(f"ingest: graph={graph_name} falkordb={host}:{port} run_id={run_id}")
 
-    log("[1/5] walking tree")
+    log("[1/6] walking tree")
     file_infos = iter_files(repo)
     log(f"      {len(file_infos)} text files")
 
     file_rows: list[dict] = []
     symbol_rows: list[dict] = []
     import_rows: list[dict] = []
+    parsed_by_file: dict[str, ParsedModule] = {}
     parse_failures = 0
     for info in file_infos:
         file_rows.append({"path": info.path, "lang": info.lang, "loc": info.loc})
@@ -90,6 +94,7 @@ def ingest(
         except SyntaxError:
             parse_failures += 1  # fixture files etc.; keep the file node anyway
             continue
+        parsed_by_file[info.path] = parsed
         for sym in parsed.symbols:
             symbol_rows.append(
                 {
@@ -104,12 +109,22 @@ def ingest(
             import_rows.append(
                 {"path": info.path, "module": imp.module, "line": imp.line}
             )
+    call_sites = sum(len(module.calls) for module in parsed_by_file.values())
     log(
         f"      symbols={len(symbol_rows)} imports={len(import_rows)} "
-        f"parse_failures={parse_failures}"
+        f"calls={call_sites} parse_failures={parse_failures}"
     )
 
-    log("[2/5] reading git history")
+    log("[2/6] resolving call sites")
+    python_files = [info.path for info in file_infos if info.lang == "python"]
+    call_rows, call_stats = resolve_calls(parsed_by_file, python_files)
+    log(
+        f"      edges={len(call_rows)} exact={call_stats['exact']} "
+        f"weak={call_stats['weak']} unresolved={call_stats['unresolved']} "
+        f"(ambiguous={call_stats['ambiguous']})"
+    )
+
+    log("[3/6] reading git history")
     commits = collect_history(repo)
     head = head_sha(repo)
     shallow = is_shallow(repo)
@@ -152,7 +167,7 @@ def ingest(
         f"      {len(commits)} commits · {len(author_rows)} authors · {len(modification_rows)} file changes"
     )
 
-    log("[3/5] writing graph")
+    log("[4/6] writing graph")
     writer = GraphWriter(host=host, port=port, graph=graph_name)
     if rebuild:
         writer.delete()
@@ -162,6 +177,7 @@ def ingest(
     writer.write_files(file_rows, run_id)
     writer.write_symbols(symbol_rows, run_id)
     writer.write_imports(import_rows, run_id)
+    writer.write_calls(call_rows, run_id)
     writer.write_modifications(modification_rows, run_id)
     writer.write_repo(
         name=repo.name,
@@ -172,14 +188,14 @@ def ingest(
     )
 
     if prune:
-        log("[4/5] pruning stale nodes")
+        log("[5/6] pruning stale nodes")
         writer.prune(run_id)
     else:
-        log("[4/5] prune skipped")
+        log("[5/6] prune skipped")
 
     counts = writer.stats()
     duration = time.monotonic() - started
-    log(f"[5/5] done in {duration:.1f}s")
+    log(f"[6/6] done in {duration:.1f}s")
     return IngestStats(
         graph=graph_name,
         repo=str(repo),
@@ -190,6 +206,7 @@ def ingest(
         parse_failures=parse_failures,
         shallow=shallow,
         counts=counts,
+        call_stats=call_stats,
     )
 
 
@@ -216,6 +233,19 @@ SMOKE_QUERIES: dict[str, str] = {
         MATCH (m:Module {name: 'flask'})<-[:IMPORTS]-(f:File)<-[:MODIFIED]-(c:Commit)<-[:AUTHORED]-(a:Author)
         RETURN a.name AS author, count(DISTINCT f) AS files
         ORDER BY count(DISTINCT f) DESC LIMIT 5
+    """,
+    "most-called symbols (fan-in)": """
+        MATCH (caller:Symbol)-[c:CALLS]->(callee:Symbol)
+        RETURN callee.qualname AS callee, callee.file AS file,
+               sum(c.count) AS calls, count(DISTINCT caller) AS callers
+        ORDER BY sum(c.count) DESC LIMIT 10
+    """,
+    "cross-file calls (top pairs)": """
+        MATCH (a:Symbol)-[c:CALLS]->(b:Symbol)
+        WHERE a.file <> b.file
+        RETURN a.qualname AS caller, b.qualname AS callee,
+               sum(c.count) AS calls
+        ORDER BY sum(c.count) DESC LIMIT 10
     """,
 }
 

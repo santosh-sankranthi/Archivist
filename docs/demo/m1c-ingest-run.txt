@@ -1,0 +1,82 @@
+ingest: repo=/home/openclaw/projects/archivist/data/flask
+ingest: graph=repo:flask falkordb=127.0.0.1:6379 
+run_id=20261015T192300Z-4428f376
+[1/6] walking tree
+      231 text files
+      symbols=1622 imports=675 calls=3651 parse_failures=0
+[2/6] resolving call sites
+      edges=765 exact=752 weak=165 unresolved=2734 (ambiguous=0)
+[3/6] reading git history
+      5562 commits · 874 authors · 9489 file changes
+[4/6] writing graph
+[5/6] pruning stale nodes
+[6/6] done in 34.0s
+
+Archivist ingest v0 — /home/openclaw/projects/archivist/data/flask
+head d086db856be1 · graph 'repo:flask' · run 20261015T192300Z-4428f376 · 34.03s 
+· 231 files · parse failures 0
+Graph counts (total)           
+┏━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ kind ┃ label / type ┃ count ┃
+┡━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━┩
+│ node │ Author       │   874 │
+│ node │ Commit       │  5562 │
+│ node │ File         │   643 │
+│ node │ Module       │   145 │
+│ node │ Repo         │     1 │
+│ node │ Symbol       │  1580 │
+│ edge │ AUTHORED     │  5562 │
+│ edge │ CALLS        │   765 │
+│ edge │ DEFINES      │  1580 │
+│ edge │ HEAD         │     1 │
+│ edge │ IMPORTS      │   675 │
+│ edge │ MODIFIED     │  9489 │
+│ edge │ PARENT       │  7294 │
+└──────┴──────────────┴───────┘
+Cypher smoke tests
+  · top authors by commits
+      David Lord  ·  1861
+      Armin Ronacher  ·  1191
+      Markus Unterwaditzer  ·  274
+      Ron DuPlain  ·  122
+      Kenneth Reitz  ·  116
+  · most-touched files (with churn)
+      flask/app.py  ·  355  ·  8823.0
+      CHANGES.rst  ·  344  ·  5128.0
+      CHANGES  ·  318  ·  1912.0
+      flask/helpers.py  ·  205  ·  4091.0
+      docs/quickstart.rst  ·  185  ·  3719.0
+  · symbol hotspots (files by defs)
+      tests/test_basic.py  ·  256
+      tests/test_blueprints.py  ·  168
+      tests/test_templating.py  ·  84
+      tests/test_cli.py  ·  66
+      tests/test_views.py  ·  66
+  · 3-hop: who touches importers of 'flask'
+      David Lord  ·  43
+      David Baumgold  ·  31
+      Markus Unterwaditzer  ·  18
+      Parkayun  ·  13
+      Christian Stade-Schuldt  ·  12
+  · most-called symbols (fan-in)
+      Flask  ·  src/flask/app.py  ·  88.0  ·  66
+      Blueprint  ·  src/flask/blueprints.py  ·  66.0  ·  52
+      url_for  ·  src/flask/helpers.py  ·  50.0  ·  40
+      Flask.test_client  ·  src/flask/app.py  ·  46.0  ·  43
+      render_template  ·  src/flask/templating.py  ·  41.0  ·  40
+      Flask.test_request_context  ·  src/flask/app.py  ·  40.0  ·  32
+      Flask.app_context  ·  src/flask/app.py  ·  27.0  ·  26
+      abort  ·  src/flask/helpers.py  ·  20.0  ·  19
+      get_db  ·  examples/tutorial/flaskr/db.py  ·  17.0  ·  16
+      Response  ·  src/flask/wrappers.py  ·  17.0  ·  15
+  · cross-file calls (top pairs)
+      test_find_best_app  ·  find_best_app  ·  8.0
+      test_find_best_app.Module  ·  Flask  ·  7.0
+      test_scriptinfo  ·  ScriptInfo  ·  7.0
+      test_templates_auto_reload  ·  Flask  ·  5.0
+      test_proper_test_request_context  ·  Flask.test_request_context  ·  5.0
+      test_config_from_mapping  ·  Flask  ·  5.0
+      test_find_best_app.Module.create_app  ·  Flask  ·  5.0
+      test_template_global  ·  render_template_string  ·  4.0
+      test_cli_blueprints  ·  Blueprint  ·  4.0
+      test_extended_flashing  ·  Flask.test_client  ·  4.0

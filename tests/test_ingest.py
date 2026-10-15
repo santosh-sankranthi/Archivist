@@ -184,3 +184,74 @@ def test_ingest_end_to_end(git_repo: Path, falkordb_or_skip, temp_graph: str):
     assert stats3.counts["nodes"]["Commit"] == 3
     assert stats3.counts["nodes"]["Symbol"] == 1
     assert stats3.counts["edges"]["DEFINES"] == 1
+
+
+CALLS_APP = """\
+from util import helper as h
+
+
+def main():
+    h()
+    h()
+
+
+class App:
+    def run(self):
+        self.render()
+
+    def render(self):
+        pass
+"""
+
+CALLS_UTIL = """\
+def helper():
+    return 1
+"""
+
+
+def test_ingest_calls_edges(tmp_path: Path, falkordb_or_skip, temp_graph: str):
+    """CALLS round trip: write, idempotent re-run, edge prune on evolution."""
+    repo = tmp_path / "calls_repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.name", "Dev One")
+    _git(repo, "config", "user.email", "dev@example.com")
+    (repo / "util.py").write_text(CALLS_UTIL)
+    (repo / "app.py").write_text(CALLS_APP)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "add app and util")
+
+    host, port = falkordb_or_skip
+    stats = ingest(repo, temp_graph, host=host, port=port, rebuild=True)
+    assert stats.call_stats == {
+        "call_sites": 3,
+        "exact": 3,
+        "weak": 0,
+        "unresolved": 0,
+        "ambiguous": 0,
+    }
+    assert stats.counts["edges"]["CALLS"] == 2  # main->helper(2 sites), run->render
+
+    writer = GraphWriter(host=host, port=port, graph=temp_graph)
+    query = (
+        "MATCH (a:Symbol)-[c:CALLS]->(b:Symbol) "
+        "RETURN a.qualname, b.qualname, c.count ORDER BY a.qualname, b.qualname"
+    )
+    assert [tuple(row) for row in writer.smoke(query)] == [
+        ("App.run", "App.render", 1),
+        ("main", "helper", 2),
+    ]
+
+    # Idempotent re-ingest: identical counts, including CALLS.
+    stats2 = ingest(repo, temp_graph, host=host, port=port)
+    assert stats2.counts == stats.counts
+
+    # Drop the call sites: CALLS edge must prune, symbols must survive.
+    (repo / "app.py").write_text(CALLS_APP.replace("    h()\n    h()\n", "    pass\n"))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "drop helper calls")
+    stats3 = ingest(repo, temp_graph, host=host, port=port)
+    assert stats3.call_stats["call_sites"] == 1
+    assert stats3.counts["edges"].get("CALLS") == 1
+    assert stats3.counts["nodes"]["Symbol"] == stats.counts["nodes"]["Symbol"]
+    assert [tuple(row) for row in writer.smoke(query)] == [("App.run", "App.render", 1)]

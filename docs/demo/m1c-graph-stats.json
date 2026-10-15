@@ -1,0 +1,247 @@
+{
+  "stats": {
+    "graph": "repo:flask",
+    "repo": "/home/openclaw/projects/archivist/data/flask",
+    "head": "d086db856be187255b8ec61ef409357393020f32",
+    "run_id": "20261015T192334Z-bb84b887",
+    "duration_s": 34.17,
+    "files": 231,
+    "parse_failures": 0,
+    "shallow": false,
+    "counts": {
+      "nodes": {
+        "Author": 874,
+        "Commit": 5562,
+        "File": 643,
+        "Module": 145,
+        "Repo": 1,
+        "Symbol": 1580
+      },
+      "edges": {
+        "AUTHORED": 5562,
+        "CALLS": 765,
+        "DEFINES": 1580,
+        "HEAD": 1,
+        "IMPORTS": 675,
+        "MODIFIED": 9489,
+        "PARENT": 7294
+      }
+    },
+    "call_stats": {
+      "call_sites": 3651,
+      "exact": 752,
+      "weak": 165,
+      "unresolved": 2734,
+      "ambiguous": 0
+    }
+  },
+  "smoke": {
+    "top authors by commits": [
+      [
+        "David Lord",
+        1861
+      ],
+      [
+        "Armin Ronacher",
+        1191
+      ],
+      [
+        "Markus Unterwaditzer",
+        274
+      ],
+      [
+        "Ron DuPlain",
+        122
+      ],
+      [
+        "Kenneth Reitz",
+        116
+      ]
+    ],
+    "most-touched files (with churn)": [
+      [
+        "flask/app.py",
+        355,
+        8823.0
+      ],
+      [
+        "CHANGES.rst",
+        344,
+        5128.0
+      ],
+      [
+        "CHANGES",
+        318,
+        1912.0
+      ],
+      [
+        "flask/helpers.py",
+        205,
+        4091.0
+      ],
+      [
+        "docs/quickstart.rst",
+        185,
+        3719.0
+      ]
+    ],
+    "symbol hotspots (files by defs)": [
+      [
+        "tests/test_basic.py",
+        256
+      ],
+      [
+        "tests/test_blueprints.py",
+        168
+      ],
+      [
+        "tests/test_templating.py",
+        84
+      ],
+      [
+        "tests/test_cli.py",
+        66
+      ],
+      [
+        "tests/test_views.py",
+        66
+      ]
+    ],
+    "3-hop: who touches importers of 'flask'": [
+      [
+        "David Lord",
+        43
+      ],
+      [
+        "David Baumgold",
+        31
+      ],
+      [
+        "Markus Unterwaditzer",
+        18
+      ],
+      [
+        "Parkayun",
+        13
+      ],
+      [
+        "Christian Stade-Schuldt",
+        12
+      ]
+    ],
+    "most-called symbols (fan-in)": [
+      [
+        "Flask",
+        "src/flask/app.py",
+        88.0,
+        66
+      ],
+      [
+        "Blueprint",
+        "src/flask/blueprints.py",
+        66.0,
+        52
+      ],
+      [
+        "url_for",
+        "src/flask/helpers.py",
+        50.0,
+        40
+      ],
+      [
+        "Flask.test_client",
+        "src/flask/app.py",
+        46.0,
+        43
+      ],
+      [
+        "render_template",
+        "src/flask/templating.py",
+        41.0,
+        40
+      ],
+      [
+        "Flask.test_request_context",
+        "src/flask/app.py",
+        40.0,
+        32
+      ],
+      [
+        "Flask.app_context",
+        "src/flask/app.py",
+        27.0,
+        26
+      ],
+      [
+        "abort",
+        "src/flask/helpers.py",
+        20.0,
+        19
+      ],
+      [
+        "get_db",
+        "examples/tutorial/flaskr/db.py",
+        17.0,
+        16
+      ],
+      [
+        "Response",
+        "src/flask/wrappers.py",
+        17.0,
+        15
+      ]
+    ],
+    "cross-file calls (top pairs)": [
+      [
+        "test_find_best_app",
+        "find_best_app",
+        8.0
+      ],
+      [
+        "test_find_best_app.Module",
+        "Flask",
+        7.0
+      ],
+      [
+        "test_scriptinfo",
+        "ScriptInfo",
+        7.0
+      ],
+      [
+        "test_templates_auto_reload",
+        "Flask",
+        5.0
+      ],
+      [
+        "test_proper_test_request_context",
+        "Flask.test_request_context",
+        5.0
+      ],
+      [
+        "test_config_from_mapping",
+        "Flask",
+        5.0
+      ],
+      [
+        "test_find_best_app.Module.create_app",
+        "Flask",
+        5.0
+      ],
+      [
+        "test_template_global",
+        "render_template_string",
+        4.0
+      ],
+      [
+        "test_cli_blueprints",
+        "Blueprint",
+        4.0
+      ],
+      [
+        "test_extended_flashing",
+        "Flask.test_client",
+        4.0
+      ]
+    ]
+  }
+}

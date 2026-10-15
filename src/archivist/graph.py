@@ -65,7 +65,7 @@ class GraphWriter:
 
     # -- write phases (order matters: commits before HEAD edge, files before
     #    symbols/modifications so stubs are only created for history-only
-    #    paths) --------------------------------------------------------------
+    #    paths, symbols before CALLS edges) ----------------------------------
 
     def write_repo(
         self, *, name: str, path: str, head: str, updated_at: int, run_id: str
@@ -177,6 +177,26 @@ class GraphWriter:
             {"run_id": run_id},
         )
 
+    def write_calls(self, rows: Iterable[dict], run_id: str) -> None:
+        """CALLS edges between Symbols, aggregated per caller->callee pair.
+
+        MATCH (not MERGE) on the endpoints on purpose: resolution only ever
+        links symbols that exist, so a miss means an upstream bug — better
+        silently-dropped rows than accidental stub nodes. ``c.lines`` keeps
+        the call sites; count = len(lines) for cheap ordering.
+        """
+        self._batched(
+            """
+            UNWIND $rows AS row
+            MATCH (s:Symbol {file: row.caller_file, qualname: row.caller_qual})
+            MATCH (t:Symbol {file: row.callee_file, qualname: row.callee_qual})
+            MERGE (s)-[c:CALLS]->(t)
+            SET c.count = row.count, c.lines = row.lines, c.run_id = $run_id
+            """,
+            rows,
+            {"run_id": run_id},
+        )
+
     def prune(self, run_id: str) -> None:
         """Delete File/Symbol/Module nodes not produced by the current run.
 
@@ -188,3 +208,9 @@ class GraphWriter:
                 f"MATCH (n:{label}) WHERE n.run_id IS NULL OR n.run_id <> $run_id DELETE n",
                 {"run_id": run_id},
             )
+        # Edges between surviving symbols can go stale when a call site is
+        # removed (both endpoints still exist) — stamp-prune them as well.
+        self._run(
+            "MATCH ()-[c:CALLS]->() WHERE c.run_id IS NULL OR c.run_id <> $run_id DELETE c",
+            {"run_id": run_id},
+        )

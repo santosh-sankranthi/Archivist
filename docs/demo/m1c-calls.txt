@@ -1,0 +1,30 @@
+=== CALLS coverage (repo:flask) ===
+aggregated call relations: 765  |  call sites covered: 917.0
+
+=== who calls url_for (cross-file, previously unresolved) ===
+  tests/test_helpers.py  ·  TestUrlFor.test_url_for_with_alternating_schemes  ·  x3
+  tests/test_helpers.py  ·  TestUrlFor.test_url_with_method  ·  x3
+  tests/test_basic.py  ·  test_route_decorator_custom_endpoint  ·  x3
+  tests/test_helpers.py  ·  TestUrlFor.test_url_for_with_scheme_not_external  ·  x2
+  tests/test_basic.py  ·  test_build_error_handler  ·  x2
+  tests/test_reqctx.py  ·  test_proper_test_request_context  ·  x2
+  tests/test_basic.py  ·  test_url_generation  ·  x2
+  tests/test_helpers.py  ·  TestUrlFor.test_url_for_with_anchor  ·  x1
+
+=== top call fan-in (most-called symbols) ===
+  Flask  ·  src/flask/app.py  ·  88.0 calls / 66 callers
+  Blueprint  ·  src/flask/blueprints.py  ·  66.0 calls / 52 callers
+  url_for  ·  src/flask/helpers.py  ·  50.0 calls / 40 callers
+  Flask.test_client  ·  src/flask/app.py  ·  46.0 calls / 43 callers
+  render_template  ·  src/flask/templating.py  ·  41.0 calls / 40 callers
+  Flask.test_request_context  ·  src/flask/app.py  ·  40.0 calls / 32 callers
+  Flask.app_context  ·  src/flask/app.py  ·  27.0 calls / 26 callers
+  abort  ·  src/flask/helpers.py  ·  20.0 calls / 19 callers
+
+=== deepest cross-module chains (3-hop: def -> caller -> caller) ===
+  10 distinct 3-node cross-file chains
+  Flask  ·  create_app -> SecureCookieSessionInterface
+  Flask.app_context  ·  celery_init_app.FlaskTask.__call__ -> AppContext
+  Flask.test_client  ·  client -> FlaskCliRunner
+  create_app  ·  app -> init_app
+  create_app  ·  app -> Flask
