@@ -134,25 +134,8 @@ def test_collect_history(git_repo: Path):
     assert (newest.changes[0].added, newest.changes[0].removed) == (4, 0)
 
 
-@pytest.fixture(scope="session")
-def falkordb_or_skip():
-    try:
-        GraphWriter(host="127.0.0.1", port=6379, graph="test:probe").graph.query(
-            "RETURN 1"
-        )
-    except Exception as exc:  # noqa: BLE001 - any connect error means skip
-        pytest.skip(f"FalkorDB not reachable: {exc}")
-    return ("127.0.0.1", 6379)
-
-
-@pytest.fixture()
-def temp_graph(falkordb_or_skip):
-    host, port = falkordb_or_skip
-    name = "test:archivist"
-    writer = GraphWriter(host=host, port=port, graph=name)
-    writer.delete()
-    yield name
-    writer.delete()
+# falkordb_or_skip / temp_graph fixtures moved to tests/conftest.py
+# (shared with test_tools.py).
 
 
 def test_ingest_end_to_end(git_repo: Path, falkordb_or_skip, temp_graph: str):

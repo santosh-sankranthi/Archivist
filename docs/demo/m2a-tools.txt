@@ -1,0 +1,46 @@
+# M2a demo — query tools on repo:flask (live graph)
+# regenerate: .venv/bin/python scripts/demo_tools.py | tee docs/demo/m2a-tools.txt
+# run: 2026-10-15 ~21:05 UTC
+
+== overview ==
+repo=flask head=d086db856b
+nodes: Author=874, Commit=5562, File=643, Module=145, Repo=1, Symbol=1580
+edges: AUTHORED=5562, CALLS=752, DEFINES=1580, HEAD=1, IMPORTS=675, MODIFIED=9489, PARENT=7294
+
+== find_symbols('url_for') ==
+  src/flask/app.py:1102  Flask.url_for (method)
+  src/flask/helpers.py:200  url_for (function)
+
+== callers('url_for', depth=2, limit=8) — what breaks if it changes ==
+  count=8 (weak-guess edges excluded)
+  [1 hop] examples/tutorial/flaskr/auth.py: login -> url_for  sites=[1]
+  [1 hop] examples/tutorial/flaskr/auth.py: login_required.wrapped_view -> url_for  sites=[1]
+  [1 hop] examples/tutorial/flaskr/auth.py: logout -> url_for  sites=[1]
+  [1 hop] examples/tutorial/flaskr/auth.py: register -> url_for  sites=[1]
+  [1 hop] examples/tutorial/flaskr/blog.py: create -> url_for  sites=[1]
+  [1 hop] examples/tutorial/flaskr/blog.py: delete -> url_for  sites=[1]
+  [1 hop] examples/tutorial/flaskr/blog.py: update -> url_for  sites=[1]
+  [1 hop] tests/test_appctx.py: test_basic_url_generation -> url_for  sites=[1]
+
+== owners('src/flask/app.py') — who should review ==
+  David Lord       commits=88   last=1791381700
+  pgjones          commits=22   last=1717590198
+  Jonah Lawrence   commits=2    last=1667141751
+  Adrian Moennich  commits=2    last=1625601931
+  lkk7             commits=1    last=1784040129
+
+== search_commits('deprecat', limit=5) — archaeology ==
+  4b8bde97d4  deprecate `should_ignore_error` (#5899)
+  c77a520343  deprecate should_ignore_error
+  73ce26c3e8  remove tests about deprecated pkgutil.get_loader (#5702)
+  41ec5760a2  remove tests about deprecated pkgutil.get_loader
+  315ebc1176  better type checking during deprecation (#5700)
+
+== file_history('src/flask/blueprints.py', limit=5) ==
+  9e831e915f  +1/-1  fix pyright type errors
+  28d5a4d718  +21/-22  add encoding parameter to open_resource
+  6000e80acf  +1/-1  address mypy strict findings
+  5fdce4c331  +38/-0  Don't set the cli attribute in the sansio scaffold
+  0ec7f713d6  +91/-0  Split the App and Blueprint into Sansio and IO parts
+
+== trace: 9 queries, 96 ms total ==
