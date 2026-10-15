@@ -1,6 +1,6 @@
 # M2a demo — query tools on repo:flask (live graph)
 # regenerate: .venv/bin/python scripts/demo_tools.py | tee docs/demo/m2a-tools.txt
-# run: 2026-10-15 20:55 UTC
+# run: 2026-10-15 22:33 UTC
 
 == overview ==
 repo=flask head=d086db856b
@@ -43,4 +43,4 @@ edges: AUTHORED=5562, CALLS=752, DEFINES=1580, HEAD=1, IMPORTS=675, MODIFIED=948
   5fdce4c331  +38/-0  Don't set the cli attribute in the sansio scaffold
   0ec7f713d6  +91/-0  Split the App and Blueprint into Sansio and IO parts
 
-== trace: 9 queries, 75 ms total ==
+== trace: 10 queries, 71 ms total ==

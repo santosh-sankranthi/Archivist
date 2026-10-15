@@ -12,6 +12,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from archivist.graph import GraphWriter
 from archivist.ingest import ingest
 from archivist.tools import RepoGraph
@@ -174,11 +176,22 @@ def test_callers_depth_chains_and_weak_filter(tmp_path, falkordb_or_skip, temp_g
         "(b:Symbol {file: 'util.py', qualname: 'leaf'}) "
         "MERGE (a)-[r:CALLS]->(b) SET r.count = 1, r.lines = [9], r.weak = true"
     )
+    # ...plus a weak-only caller (unused) that the default view must flag
+    # as hidden rather than letting it vanish silently.
+    writer.smoke(
+        "MATCH (a:Symbol {file: 'app.py', qualname: 'unused'}), "
+        "(b:Symbol {file: 'util.py', qualname: 'leaf'}) "
+        "MERGE (a)-[r:CALLS]->(b) SET r.count = 1, r.lines = [13], r.weak = true"
+    )
     default = tools.callers("leaf", depth=2)
     assert [(r["caller"], r["hops"]) for r in default["results"]] == [
         ("helper", 1),
         ("main", 2),
     ]
+    assert any(
+        "1 caller(s) hidden by the weak-edge filter" in note
+        for note in default["notes"]
+    ), "hidden weak-only callers must be surfaced in notes"
     # ...and visible (flagged, shortest path) when explicitly requested.
     with_weak = tools.callers("leaf", depth=2, include_weak=True)
     by_caller = {r["caller"]: r for r in with_weak["results"]}
@@ -241,3 +254,14 @@ def test_trace_and_raw_query(tmp_path: Path, falkordb_or_skip, temp_graph):
     env = tools.query("MATCH (s:Symbol) RETURN count(s) AS n")
     assert env["results"][0]["n"] == 5
     assert env["queries"][0]["cypher"].startswith("MATCH (s:Symbol)")
+
+
+def test_argument_guards_and_query_clamp(tmp_path: Path, falkordb_or_skip, temp_graph):
+    host, port = falkordb_or_skip
+    tools = _tools_for(_chain_repo(tmp_path), host, port, temp_graph)
+    with pytest.raises(ValueError, match="integer"):
+        tools.callers("leaf", depth="two")
+    with pytest.raises(ValueError, match="integer"):
+        tools.find_symbols("leaf", limit=None)
+    env = tools.query("UNWIND range(1, 150) AS i RETURN i AS n", limit=1000)
+    assert len(env["results"]) == 100  # documented 1-100 cap applies everywhere

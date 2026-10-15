@@ -14,9 +14,12 @@ from falkordb import FalkorDB
 
 _BATCH = 500
 
-# Lookup indexes the read tools rely on. M2-RESEARCH measured that repo:flask
-# shipped with none, while name/path/sha lookups are the hot path of every
-# tool; ingest ensures them after each run (idempotent, creates are async).
+# Lookup indexes ensured after each ingest run (idempotent; creates are async).
+# Honest scope (REVIEW-M2): File.path and Module.name serve read tools directly;
+# Commit.sha serves the ingest write path; Symbol.name serves single-key shapes
+# only — resolve and CALLS anchors still plan as label scans (index-shape work
+# is an M3 perf item). The Symbol.name FULLTEXT index is pre-created for the
+# M3 search work; nothing reads it yet.
 INDEXES: list[tuple[str, str]] = [
     ("range Symbol.name", "CREATE INDEX FOR (s:Symbol) ON (s.name)"),
     ("range File.path", "CREATE INDEX FOR (f:File) ON (f.path)"),

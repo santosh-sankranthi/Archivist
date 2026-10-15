@@ -14,6 +14,8 @@ Design contract (see DECISIONS.md D-010):
 * CALLS edges resolved by name-guessing carry ``weak=True`` (rings 3–4 of
   ``archivist.calls``). Tools exclude them by default — honest numbers over
   impressive ones — unless the caller opts in with ``include_weak=True``.
+  When guesses are hidden, ``notes`` says how many were filtered, so a zero
+  is never silent about what was excluded.
 * Rows are JSON-able plain structures; no FalkorDB client objects leak out,
   so envelopes can go straight into prompts, CLI rendering, or the UI.
 * Every query runs through ``GRAPH.RO_QUERY`` — the read path is enforced
@@ -35,11 +37,19 @@ SymbolId = tuple[str, str]  # (file, qualname) — the graph's symbol identity
 
 
 def _clamp_depth(depth: int) -> int:
-    return max(1, min(int(depth), MAX_DEPTH))
+    try:
+        value = int(depth)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"depth must be an integer, got {depth!r}") from exc
+    return max(1, min(value, MAX_DEPTH))
 
 
 def _clamp_limit(limit: int) -> int:
-    return max(1, min(int(limit), MAX_LIMIT))
+    try:
+        value = int(limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"limit must be an integer, got {limit!r}") from exc
+    return max(1, min(value, MAX_LIMIT))
 
 
 @dataclass
@@ -126,9 +136,9 @@ class RepoGraph:
             RETURN s.file AS file, s.qualname AS qualname, s.name AS name,
                    s.kind AS kind, s.lineno AS lineno, s.qualname = $name AS qual_hit
             ORDER BY qual_hit DESC, file, qualname
-            LIMIT {limit}
+            LIMIT $limit
             """,
-            {"name": name, "file": file} if file else {"name": name},
+            {"name": name, "limit": limit, **({"file": file} if file else {})},
         )
         exact = [row for row in rows if row["qual_hit"]]
         candidates = exact or rows
@@ -151,6 +161,50 @@ class RepoGraph:
                 since,
             )
         return candidates[0], None
+
+    def _hidden_weak_note(
+        self,
+        kind: str,
+        direction: str,
+        target: dict,
+        depth: int,
+        cap: int,
+        shown: dict,
+    ) -> list[str]:
+        """Note peers visible only when weak guesses are included.
+
+        The default view drops weak edges; without this reminder a count of 0
+        would look identical to "nothing calls this". One extra read query
+        keeps the honest-numbers promise visible in the envelope itself.
+        """
+        if direction == "in":  # who calls the target
+            pattern = (
+                f"(c:Symbol)-[:CALLS*1..{depth}]->"
+                "(t:Symbol {file: $file, qualname: $qualname})"
+            )
+        else:  # what the target calls
+            pattern = (
+                "(s:Symbol {file: $file, qualname: $qualname})-"
+                f"[:CALLS*1..{depth}]->(c:Symbol)"
+            )
+        rows = self._q(
+            f"""
+            MATCH p={pattern}
+            WHERE (c.file <> $file OR c.qualname <> $qualname)
+              AND any(r IN relationships(p) WHERE coalesce(r.weak, false))
+            RETURN DISTINCT c.file AS file, c.qualname AS peer
+            LIMIT {cap}
+            """,
+            {"file": target["file"], "qualname": target["qualname"]},
+        )
+        hidden = {(row["file"], row["peer"]) for row in rows} - set(shown)
+        if not hidden:
+            return []
+        message = (
+            f"{len(hidden)} {kind}(s) hidden by the weak-edge filter"
+            " — pass include_weak=true to include"
+        )
+        return [message]
 
     # -- tools -------------------------------------------------------------
 
@@ -284,9 +338,12 @@ class RepoGraph:
         results = sorted(
             deduped.values(), key=lambda r: (r["hops"], r["file"], r["caller"])
         )[:limit]
-        return self._envelope(
-            "callers", "ok", params, results, [f"target = {target['qualname']}"], since
-        )
+        notes = [f"target = {target['qualname']}"]
+        if not include_weak:
+            notes.extend(
+                self._hidden_weak_note("caller", "in", target, depth, cap, deduped)
+            )
+        return self._envelope("callers", "ok", params, results, notes, since)
 
     def callees(
         self,
@@ -343,9 +400,12 @@ class RepoGraph:
         results = sorted(
             deduped.values(), key=lambda r: (r["hops"], r["file"], r["callee"])
         )[:limit]
-        return self._envelope(
-            "callees", "ok", params, results, [f"source = {source['qualname']}"], since
-        )
+        notes = [f"source = {source['qualname']}"]
+        if not include_weak:
+            notes.extend(
+                self._hidden_weak_note("callee", "out", source, depth, cap, deduped)
+            )
+        return self._envelope("callees", "ok", params, results, notes, since)
 
     def importers(self, module: str, limit: int = 50) -> dict:
         """Files that import a module, with import line numbers.
@@ -449,6 +509,7 @@ class RepoGraph:
         here.
         """
         since = self._mark()
+        limit = _clamp_limit(limit)
         rows = self._q(cypher, params)
         return self._envelope(
             "query", "ok", {"cypher": cypher, **(params or {})}, rows[:limit], [], since

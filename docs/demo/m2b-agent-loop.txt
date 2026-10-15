@@ -3,10 +3,10 @@ M2b — tool-calling loop over repo:flask (scripted model, live graph)
 Q: Who should review changes to src/flask/blueprints.py, and what does the recent history say?
 
 tool calls:
-  1. owners({"path": "src/flask/blueprints.py"}) -> ok, 5 rows, 2 ms
+  1. owners({"path": "src/flask/blueprints.py"}) -> ok, 5 rows, 1 ms
   2. file_history({"path": "src/flask/blueprints.py", "limit": 6}) -> ok, 6 rows, 1 ms
   3. callers({"symbol": "Blueprint", "depth": 1, "limit": 5}) -> ambiguous, 2 rows, 1 ms
-  4. callers({"symbol": "Blueprint", "file": "src/flask/blueprints.py", "limit": 5}) -> ok, 5 rows, 5 ms
+  4. callers({"symbol": "Blueprint", "file": "src/flask/blueprints.py", "limit": 5}) -> ok, 5 rows, 6 ms
 
 owners -> reviewer candidates ranked by commits touching the file:
   David Lord       commits=29
@@ -37,7 +37,7 @@ callers('Blueprint', file=src/flask/blueprints.py) -> retried, scoped:
 answer:
   [scripted closing for a mechanics demo — a real model composes this line from the results above once ARCHIVIST_LLM_* is configured]
 
-trace: 5 queries · 8 ms · 5 LLM calls
+trace: 6 queries · 9 ms · 5 LLM calls
 
 sample query from the trace (every tool call is auditable like this):
   [owners] MATCH (c:Commit)-[:MODIFIED]->(f:File {path: $path}) MATCH (a:Author)-[:AUTHORED]->(c) WITH a, count(DISTINCT c) AS commits, max(c.ts) AS last_ts, min(c.ts) AS first_ts RETURN a.name AS name, a.email AS email, commits, last_ts, first_ts ORDER BY commits DESC, last_ts DESC LIMIT $limit
