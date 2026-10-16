@@ -11,7 +11,7 @@
   --line-2: #2f353f;
   --ink: #e6e2d8;
   --dim: #9a958a;
-  --faint: #67645d;
+  --faint: #878175;
   --amber: #e0a458;
   --amber-soft: #8a6534;
   --ok: #7fb28a;
@@ -76,7 +76,6 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
   display: flex; flex-direction: column;
   gap: 1px; background: var(--line);
 }
-.rail-right { border-left: 1px solid var(--line); }
 
 /* ---- panels ---------------------------------------------------------- */
 .panel {

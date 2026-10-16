@@ -46,6 +46,8 @@ function initCy() {
   cy = cytoscape({
     container: $("canvas"),
     elements: [],
+    // Deliberate: gentler zoom for demos. cytoscape prints a known one-line
+    // startup warning for any non-default wheelSensitivity; we accept it.
     wheelSensitivity: 0.2,
     minZoom: 0.08,
     maxZoom: 3,
@@ -62,7 +64,8 @@ function initCy() {
           "text-halign": "center",
           "text-margin-y": 4,
           "text-wrap": "ellipsis",
-          "text-max-width": "112px",
+          "text-max-width": "96px",
+          "min-zoomed-font-size": 7,
           "text-background-color": "#0d0e10",
           "text-background-opacity": 0.72,
           "text-background-padding": "2px",
@@ -157,8 +160,8 @@ function render(payload) {
     name: "cose",
     animate: !REDUCED,
     animationDuration: 350,
-    nodeRepulsion: 13000,
-    idealEdgeLength: 92,
+    nodeRepulsion: 16000,
+    idealEdgeLength: 104,
     gravity: 0.55,
     componentSpacing: 72,
     padding: 30,
@@ -479,6 +482,13 @@ function wire() {
         li.appendChild(b);
         results.appendChild(li);
       });
+      if (items.length > 14) {
+        const li = el("li");
+        li.appendChild(
+          el("div", "empty", `showing first 14 of ${items.length} — refine to narrow`)
+        );
+        results.appendChild(li);
+      }
     } catch (err) {
       toast("search failed: " + err.message);
     }
