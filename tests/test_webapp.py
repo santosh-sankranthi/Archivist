@@ -23,6 +23,7 @@ import pytest
 
 from archivist.ingest import ingest
 from archivist.llm import LLMResponse
+from archivist.memory import Memory
 from archivist.webapp import ApiError, WebApp, make_server
 
 
@@ -682,3 +683,116 @@ def test_ask_runs_with_injected_llm_factory(chain_repo, falkordb_or_skip, temp_g
     assert state_status == 200
     assert state["llm"]["configured"] is True
     assert state["llm"]["model"] == "fake-model"
+
+
+# -- /api/graph/memory (M4R P1: memory timeline) -----------------------------
+
+
+def _seed_memory(host: str, port: int, graph: str) -> None:
+    """Two episodes, one handoff, one fact superseded by a second."""
+    mem = Memory(graph=graph, host=host, port=port)
+    try:
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id="ep:first",
+            ts=1000,
+            question="who calls foo?",
+        )
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id="ep:second",
+            ts=2000,
+            question="and bar?",
+        )
+        assert mem.link_handoff("ep:first", "ep:second", note="continue from first")
+        mem.remember_fact(
+            text="foo is called by bar",
+            episode_id="ep:first",
+            fact_id="fact:old",
+            valid_at=1000,
+            refs=[{"kind": "symbol", "file": "util.py", "qualname": "leaf"}],
+        )
+        superseded = mem.supersede_fact(
+            "fact:old",
+            text="foo is called by baz",
+            episode_id="ep:second",
+            fact_id="fact:new",
+        )
+        assert superseded["supersedes_edge"] is True
+    finally:
+        mem.close()
+
+
+def test_memory_now_view_reports_state_and_chains(
+    web_server: str, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    _seed_memory(host, port, temp_graph)
+    status, data = get_json(web_server + "/api/graph/memory")
+    assert status == 200
+    assert data["mode"] == "now" and data["as_of"] is None
+    assert data["counts"] == {
+        "episodes": 2,
+        "facts": 2,
+        "open_facts": 1,
+        "handoff_edges": 1,
+        "supersede_edges": 1,
+    }
+    assert data["range"] == {"earliest": 1000, "latest": 2000}
+    # "True now": only the open fact is shown...
+    assert [f["id"] for f in data["facts"]] == ["fact:new"]
+    # ...and the hidden older claim rides along so the chain chip can name it.
+    assert [f["id"] for f in data["chain_facts"]] == ["fact:old"]
+    assert data["chain_facts"][0]["text"] == "foo is called by bar"
+    # Episodes newest first; the handoff note rides on the earlier one.
+    assert [e["id"] for e in data["episodes"]] == ["ep:second", "ep:first"]
+    first = next(e for e in data["episodes"] if e["id"] == "ep:first")
+    second = next(e for e in data["episodes"] if e["id"] == "ep:second")
+    assert [h["to"] for h in first["handoffs"]] == ["ep:second"]
+    assert first["handoffs"][0]["note"] == "continue from first"
+    assert [h["from"] for h in second["handoff_in"]] == ["ep:first"]
+
+
+def test_memory_history_view_keeps_windows_and_lineage(
+    web_server: str, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    _seed_memory(host, port, temp_graph)
+    status, data = get_json(web_server + "/api/graph/memory?history=1")
+    assert status == 200 and data["mode"] == "history"
+    by_id = {f["id"]: f for f in data["facts"]}
+    assert set(by_id) == {"fact:new", "fact:old"}
+    assert by_id["fact:new"]["supersedes"] == ["fact:old"]
+    assert by_id["fact:old"]["superseded_by"] == ["fact:new"]
+    # Windows tile, exactly as the write path set them.
+    assert by_id["fact:new"]["valid_at"] == by_id["fact:old"]["invalid_at"]
+    assert by_id["fact:old"]["invalid_at"] is not None
+    assert by_id["fact:old"]["refs"] == [{"kind": "Symbol", "label": "util.py:leaf"}]
+    assert any("full history" in n for n in data["notes"])
+    assert data["chain_facts"] == []  # nothing hidden in this view
+
+
+def test_memory_as_of_view_is_event_time(web_server: str, falkordb_or_skip, temp_graph):
+    host, port = falkordb_or_skip
+    _seed_memory(host, port, temp_graph)
+    status, data = get_json(web_server + "/api/graph/memory?as_of=1500")
+    assert status == 200
+    assert data["mode"] == "as_of" and data["as_of"] == 1500
+    assert [f["id"] for f in data["facts"]] == ["fact:old"]  # true mid-window
+    assert [e["id"] for e in data["episodes"]] == ["ep:first"]  # ts <= T only
+    assert any("as of 1500" in n for n in data["notes"])
+
+
+def test_memory_rejects_bad_as_of(web_server: str):
+    assert status_only(web_server + "/api/graph/memory?as_of=nope") == 400
+    assert status_only(web_server + "/api/graph/memory?as_of=-5") == 400
+
+
+def test_memory_empty_graph_is_honest(web_server: str):
+    status, data = get_json(web_server + "/api/graph/memory")
+    assert status == 200
+    assert data["episodes"] == [] and data["facts"] == []
+    assert data["counts"]["episodes"] == 0 and data["counts"]["facts"] == 0
+    assert any("no memory recorded yet" in n for n in data["notes"])

@@ -1,0 +1,24 @@
+# /api/graph/memory — live check (M4R P1, server side)
+# 2026-10-16T21:52:26Z · repo:flask · archivist-console unit :8787 · on top of 7cae8e9
+
+$ curl -s http://127.0.0.1:8787/api/graph/memory   # default: "true now"
+  mode=now · counts: 32 episodes · 2 facts (1 open) · 1 supersede edge(s) · 2 handoff edge(s)
+  range: 1792108554 -> 1792185234
+  fact demo:fact:tag-review:v2: open (supersedes ['fact:21cece096a942551']); refs [{'kind': 'File', 'label': 'src/flask/json/tag.py'}]
+  chain_fact fact:21cece096a942551: hidden claim named — json/tag.py review routing: David Lord has the most commits touching src...
+  handoff out-edges attached: 2; e.g. demo:crew:run-1:investigator -> ['demo:crew:run-1:verifier']
+  notes: ['22 episode answer(s) truncated for display']
+
+$ curl -s "http://127.0.0.1:8787/api/graph/memory?as_of=1792150000"   # scrubber query
+  mode=as_of · episodes in view: 17 · facts in view: 1
+  notes: ['as of 1792150000 (event time)', '12 episode answer(s) truncated for display']
+
+$ curl -s "http://127.0.0.1:8787/api/graph/memory?history=1"   # full history
+  mode=history · facts in view: 2 · supersede windows tile: True (1 pair(s))
+  notes: ['invalidated facts included (full history)', '22 episode answer(s) truncated for display']
+
+# public tunnel edge:
+$ curl -s -o /dev/null -w '%{http_code}' https://computer-prevent-reconstruction-belkin.trycloudflare.com/api/graph/memory
+  200
+
+# suite: pytest 109/109 · ruff + black clean · test_webapp.py 37/37 (5 new for this endpoint)

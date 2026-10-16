@@ -22,6 +22,8 @@ Endpoints:
     GET  /api/graph/module     files importing one module
     GET  /api/graph/symbol     call neighbourhood (callers + callees, ≤3 hops)
     GET  /api/graph/path       shortest directed call path between two symbols
+    GET  /api/graph/memory     memory timeline: episodes + bi-temporal facts
+                               (as_of/history views)
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
@@ -61,6 +63,14 @@ MAX_EDGES = 520
 MAX_SYMBOLS_PER_FILE = 140
 MAX_IMPORTS_PER_FILE = 80
 MAX_IMPORTERS_PER_MODULE = 150
+# /api/graph/memory (M4R P1): memory timeline caps. The console must stay
+# renderable; every trim is reported in notes — same honesty rule as the rest.
+MAX_MEMORY_EPISODES = 40
+MAX_MEMORY_FACTS = 120
+MAX_EPISODE_ANSWER = 400  # chars kept per episode answer in the timeline
+_EPISODE_CORE_KEYS = frozenset(
+    {"id", "kind", "source", "ts", "created_at", "question", "answer", "role", "run"}
+)
 # /api/graph/induced (M4R step 3): per-step evidence ref caps, reported in
 # notes when trimmed — the same honesty rule as every other projection.
 MAX_INDUCED_STEPS = 12
@@ -178,6 +188,12 @@ def collect(result_set, columns) -> tuple[dict, dict, list[dict]]:
         if scalar_row:
             scalars.append(scalar_row)
     return nodes, edges, scalars
+
+
+def scalar_rows(result) -> list[dict]:
+    """Result rows as dicts keyed by their RETURN column names."""
+    columns = [header[1] for header in result.header]
+    return [dict(zip(columns, row, strict=True)) for row in result.result_set]
 
 
 def finalize(
@@ -303,6 +319,11 @@ class WebApp:
         nodes, edges, _ = collect(result.result_set, columns)
         return finalize(nodes, edges, focus=focus, notes=notes)
 
+    def _scalar(self, cypher: str, params: dict | None = None):
+        """First cell of a scalar query (counts, window min/max); None if empty."""
+        rows = self._ro(cypher, params).result_set
+        return rows[0][0] if rows and rows[0] else None
+
     @staticmethod
     def _json(status: int, payload: dict) -> tuple[int, str, bytes]:
         body = json.dumps(payload, default=str).encode("utf-8")
@@ -329,6 +350,8 @@ class WebApp:
                     return self._json(200, self._graph_overview())
                 if path == "/api/graph/activity":
                     return self._json(200, self._graph_activity())
+                if path == "/api/graph/memory":
+                    return self._json(200, self._graph_memory(query))
                 if path == "/api/graph/find":
                     return self._json(200, self._graph_find(query))
                 if path == "/api/graph/file":
@@ -510,6 +533,273 @@ class WebApp:
                 }
                 for row in rows
             ]
+        }
+
+    def _graph_memory(self, query: dict) -> dict:
+        """Memory timeline (Console v2 P1): episodes + bi-temporal facts.
+
+        Three views over the same state, mirroring the ``recall`` tool:
+        default is "true now" (open windows); ``history=1`` returns every
+        fact with its windows intact (invalidate-don't-delete); and
+        ``as_of=<epoch>`` answers "what was true at T" (event time) — the
+        console scrubber's query. ``chain_facts`` carries the minimal
+        fields of supersede-chain neighbours the current view hides, so a
+        chain chip can name the older claim without a second fetch. Every
+        cap is reported in ``notes`` with exact counts.
+        """
+        raw_as_of = (query.get("as_of") or [""])[0].strip()
+        as_of = None
+        if raw_as_of:
+            try:
+                as_of = int(raw_as_of)
+            except ValueError:
+                as_of = None
+            if as_of is None or as_of < 0:
+                raise ApiError(
+                    400, "as_of must be epoch seconds (e.g. ?as_of=1792111642)"
+                )
+        history = (query.get("history") or ["0"])[0].strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        mode = "as_of" if as_of is not None else ("history" if history else "now")
+
+        counts = scalar_rows(self._ro("""
+                MATCH (e:Episode)
+                RETURN count(e) AS episodes,
+                       min(coalesce(e.ts, e.created_at)) AS earliest,
+                       max(coalesce(e.ts, e.created_at)) AS latest
+                """))
+        counts = (
+            counts[0] if counts else {"episodes": 0, "earliest": None, "latest": None}
+        )
+        facts_total = self._scalar("MATCH (f:Fact) RETURN count(f)") or 0
+        open_facts = (
+            self._scalar("MATCH (f:Fact) WHERE f.invalid_at IS NULL RETURN count(f)")
+            or 0
+        )
+        handoff_edges = self._scalar("MATCH ()-[h:HANDOFF]->() RETURN count(h)") or 0
+        supersede_edges = (
+            self._scalar("MATCH (:Fact)-[s:SUPERSEDES]->(:Fact) RETURN count(s)") or 0
+        )
+
+        ep_params: dict = {"limit": MAX_MEMORY_EPISODES}
+        ep_where = ""
+        if as_of is not None:
+            ep_where = "WHERE coalesce(e.ts, e.created_at) <= $as_of"
+            ep_params["as_of"] = as_of
+        episode_rows = scalar_rows(
+            self._ro(
+                f"""
+                MATCH (e:Episode)
+                {ep_where}
+                RETURN e.id AS id, e.kind AS kind, e.source AS source,
+                       coalesce(e.ts, e.created_at) AS ts,
+                       e.created_at AS created_at, properties(e) AS props
+                ORDER BY coalesce(e.ts, e.created_at) DESC, e.id
+                LIMIT $limit
+                """,
+                ep_params,
+            )
+        )
+
+        fact_params: dict = {"limit": MAX_MEMORY_FACTS}
+        if as_of is not None:
+            fact_where = (
+                "WHERE coalesce(f.valid_at, f.created_at) <= $as_of"
+                " AND (f.invalid_at IS NULL OR f.invalid_at > $as_of)"
+            )
+            fact_params["as_of"] = as_of
+            facts_count = (
+                self._scalar(
+                    "MATCH (f:Fact)"
+                    " WHERE coalesce(f.valid_at, f.created_at) <= $as_of"
+                    " AND (f.invalid_at IS NULL OR f.invalid_at > $as_of)"
+                    " RETURN count(f)",
+                    {"as_of": as_of},
+                )
+                or 0
+            )
+        elif mode == "history":
+            fact_where = ""
+            facts_count = facts_total
+        else:
+            fact_where = "WHERE f.invalid_at IS NULL"
+            facts_count = open_facts
+        fact_rows = scalar_rows(
+            self._ro(
+                f"""
+                MATCH (f:Fact) {fact_where}
+                OPTIONAL MATCH (e:Episode)-[:PRODUCED]->(f)
+                RETURN f.id AS id, f.text AS text, f.kind AS kind,
+                       f.valid_at AS valid_at, f.invalid_at AS invalid_at,
+                       f.created_at AS created_at, f.expired_at AS expired_at,
+                       collect(DISTINCT e.id) AS episode_ids
+                ORDER BY coalesce(f.valid_at, f.created_at) DESC, f.id
+                LIMIT $limit
+                """,
+                fact_params,
+            )
+        )
+
+        pairs = scalar_rows(
+            self._ro(
+                "MATCH (a:Fact)-[:SUPERSEDES]->(b:Fact)"
+                " RETURN a.id AS new_id, b.id AS old_id"
+            )
+        )
+        # Minimal fields for every fact: a chain can reach facts the current
+        # view hides (a superseded claim in "now" mode), and the timeline
+        # should still be able to name them. Memory graphs stay small by design.
+        all_minimal = scalar_rows(self._ro("""
+                MATCH (f:Fact)
+                RETURN f.id AS id, f.text AS text, f.kind AS kind,
+                       f.valid_at AS valid_at, f.invalid_at AS invalid_at
+                """))
+        ref_rows = scalar_rows(self._ro("""
+                MATCH (f:Fact)-[:ABOUT]->(x)
+                RETURN f.id AS fact_id, labels(x) AS labels,
+                       x.path AS path, x.file AS file, x.qualname AS qualname,
+                       x.sha AS sha
+                """))
+        handoff_rows = scalar_rows(self._ro("""
+                MATCH (a:Episode)-[h:HANDOFF]->(b:Episode)
+                RETURN a.id AS from_id, b.id AS to_id, h.note AS note,
+                       h.created_at AS ts
+                """))
+
+        refs_by_fact: dict[str, list] = {}
+        for row in ref_rows:
+            labels = row.get("labels") or []
+            kind = str(labels[0]) if labels else "Node"
+            if row.get("path"):
+                label = row["path"]
+            elif row.get("qualname"):
+                label = f"{row.get('file')}:{row['qualname']}"
+            elif row.get("sha"):
+                label = str(row["sha"])[:10]
+            else:
+                label = None
+            refs_by_fact.setdefault(row["fact_id"], []).append(
+                {"kind": kind, "label": label}
+            )
+
+        out_handoffs: dict[str, list] = {}
+        in_handoffs: dict[str, list] = {}
+        for h in handoff_rows:
+            item = {"note": h["note"], "ts": h["ts"]}
+            out_handoffs.setdefault(h["from_id"], []).append({"to": h["to_id"], **item})
+            in_handoffs.setdefault(h["to_id"], []).append(
+                {"from": h["from_id"], **item}
+            )
+
+        episodes_out: list[dict] = []
+        truncated = 0
+        for row in episode_rows:
+            props = dict(row.pop("props") or {})
+            answer = props.get("answer")
+            if isinstance(answer, str) and len(answer) > MAX_EPISODE_ANSWER:
+                answer = answer[: MAX_EPISODE_ANSWER - 1] + "…"
+                truncated += 1
+            episodes_out.append(
+                {
+                    "id": row["id"],
+                    "kind": row["kind"],
+                    "source": row["source"],
+                    "ts": row["ts"],
+                    "created_at": row["created_at"],
+                    "question": props.get("question"),
+                    "answer": answer,
+                    "role": props.get("role"),
+                    "run": props.get("run"),
+                    "props": {
+                        key: _jsonable(value)
+                        for key, value in props.items()
+                        if key not in _EPISODE_CORE_KEYS and value is not None
+                    },
+                    "handoffs": sorted(
+                        out_handoffs.get(row["id"], []),
+                        key=lambda h: h["ts"] or 0,
+                    ),
+                    "handoff_in": sorted(
+                        in_handoffs.get(row["id"], []),
+                        key=lambda h: h["ts"] or 0,
+                    ),
+                }
+            )
+
+        facts_out: list[dict] = []
+        for row in fact_rows:
+            episode_ids = [e for e in (row["episode_ids"] or []) if e]
+            facts_out.append(
+                {
+                    "id": row["id"],
+                    "kind": row["kind"],
+                    "text": row["text"],
+                    "valid_at": row["valid_at"],
+                    "invalid_at": row["invalid_at"],
+                    "created_at": row["created_at"],
+                    "expired_at": row["expired_at"],
+                    "episode_id": episode_ids[0] if episode_ids else None,
+                    "supersedes": [],
+                    "superseded_by": [],
+                    "refs": refs_by_fact.get(row["id"], []),
+                }
+            )
+        by_id = {f["id"]: f for f in facts_out}
+        for pair in pairs:
+            if pair["new_id"] in by_id:
+                by_id[pair["new_id"]]["supersedes"].append(pair["old_id"])
+            if pair["old_id"] in by_id:
+                by_id[pair["old_id"]]["superseded_by"].append(pair["new_id"])
+        linked = {fid for pair in pairs for fid in (pair["new_id"], pair["old_id"])}
+        chain_facts = [
+            fact
+            for fact in all_minimal
+            if fact["id"] in linked and fact["id"] not in by_id
+        ]
+
+        notes: list[str] = []
+        if facts_count > MAX_MEMORY_FACTS:
+            notes.append(
+                f"facts capped at {MAX_MEMORY_FACTS} "
+                f"({facts_count - MAX_MEMORY_FACTS} not shown)"
+            )
+        if counts["episodes"] > MAX_MEMORY_EPISODES:
+            notes.append(
+                f"episodes capped at {MAX_MEMORY_EPISODES} "
+                f"({counts['episodes'] - MAX_MEMORY_EPISODES} not shown, newest first)"
+            )
+        if mode == "history":
+            notes.append("invalidated facts included (full history)")
+        if mode == "as_of":
+            notes.append(f"as of {as_of} (event time)")
+        if truncated:
+            notes.append(f"{truncated} episode answer(s) truncated for display")
+        if not facts_out and not episodes_out:
+            notes.append(
+                f"nothing true as of {as_of}"
+                if as_of is not None
+                else "no memory recorded yet"
+            )
+
+        return {
+            "graph": self.graph,
+            "mode": mode,
+            "as_of": as_of,
+            "range": {"earliest": counts["earliest"], "latest": counts["latest"]},
+            "counts": {
+                "episodes": counts["episodes"],
+                "facts": facts_total,
+                "open_facts": open_facts,
+                "handoff_edges": handoff_edges,
+                "supersede_edges": supersede_edges,
+            },
+            "episodes": episodes_out,
+            "facts": facts_out,
+            "chain_facts": chain_facts,
+            "notes": notes,
         }
 
     def _graph_find(self, query: dict) -> dict:
