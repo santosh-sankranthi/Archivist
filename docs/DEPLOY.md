@@ -1,6 +1,6 @@
 # Deploying Archivist
 
-Three ways to run or reach Archivist, from "reproduce on your machine" to
+Four ways to run or reach Archivist, from "reproduce on your machine" to
 "someone else clicks a link".
 
 ## 1. Local (the quickstart path)
@@ -66,8 +66,35 @@ a stable URL, see the upgrade paths below.
   then `tailscale funnel --bg 8787`. Pending: admin click from the operator.
 - **A deploy host** (Fly.io / Render / a VPS) with a `GH_TOKEN`-created repo
   and registry token. Pending: operator accounts/tokens.
-- **Container image** — a `Dockerfile` + `compose.yaml` bake (app + FalkorDB)
-  is the M5 next step; it makes any of the above one command.
+- **Container image** — `Dockerfile` + `compose.yaml` in the repo bake the
+  full stack (app + FalkorDB, Console v2 built inside the image); any of the
+  above can run the same image (see §4).
+
+## 4. Docker Compose (self-host, one command)
+
+`compose.yaml` runs the whole stack: FalkorDB (`v4.22.1`, the pinned test
+version) plus the console/agent server — Console v2 built inside the image.
+
+```bash
+docker compose up -d --build     # -> http://127.0.0.1:8787/console/
+docker compose run --rm app python scripts/ingest.py --repo /data/flask --graph repo:flask
+```
+
+Repositories under `data/` are mounted read-only at `/data` for ingesting;
+any other checkout works with `-v /abs/path:/repo:ro --repo /repo`. Serve a
+different graph name with `ARCHIVIST_GRAPH=repo:mytool docker compose up -d`
+(queries run live, so re-ingest needs no restart — only a graph *name*
+change does). Graph data lives in the `falkordb-data` volume and survives
+rebuilds. First run: ingest a repository before exploring — until then the
+read APIs report that the graph doesn't exist yet.
+
+Knobs: `ARCHIVIST_PORT` (console host port, default 8787), `FALKORDB_PORT`
+(database host port, default 6379 — set it if a local FalkorDB already holds
+6379), `ARCHIVIST_GRAPH` (graph served). Both published ports bind to
+`127.0.0.1` only. The ask room needs a key — `ARCHIVIST_LLM_*` (or
+`OPENAI_*`) in `.env` next to `compose.yaml`; without one it stays an honest
+503. `serve.py` itself reads `FALKORDB_HOST` / `FALKORDB_PORT` /
+`ARCHIVIST_GRAPH` / `ARCHIVIST_BIND` / `ARCHIVIST_PORT` as flag defaults.
 
 ## Security notes (honest)
 

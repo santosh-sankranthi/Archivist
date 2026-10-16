@@ -35,6 +35,20 @@ Options: `python scripts/ingest.py --help` (`--repo`, `--graph`, `--rebuild`,
 `--no-prune`, `--json`). v0 trade-offs and known limitations are documented in
 `docs/graph-model.md`.
 
+### Docker
+
+```bash
+docker compose up -d --build     # FalkorDB + console -> http://127.0.0.1:8787/console/
+docker compose run --rm app python scripts/ingest.py --repo /data/flask --graph repo:flask
+```
+
+Console v2 is built inside the image; repositories under `data/` are mounted
+read-only at `/data` for ingesting (or mount any checkout with
+`-v /abs/path:/repo:ro` and `--repo /repo`). `ARCHIVIST_GRAPH` /
+`ARCHIVIST_PORT` / `FALKORDB_PORT` steer the stack, and `ARCHIVIST_LLM_*` in
+`.env` enables the ask room (without a key it stays an honest 503).
+Details: `docs/DEPLOY.md` §4.
+
 ## Graph data model
 
 One graph per repo (e.g. `repo:flask`) — code, history, and agent memory all

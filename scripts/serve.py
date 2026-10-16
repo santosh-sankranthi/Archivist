@@ -5,6 +5,11 @@ Usage:
     python scripts/serve.py [--graph repo:flask] [--port 8787] [--bind 127.0.0.1]
     python scripts/serve.py --llm-script docs/demo/m4r/ask-script.json
 
+Flag defaults come from the environment (flags win): FALKORDB_HOST /
+FALKORDB_PORT for the FalkorDB endpoint, ARCHIVIST_GRAPH (graph name),
+ARCHIVIST_BIND / ARCHIVIST_PORT for the HTTP side — compose.yaml uses
+these to point the server at the stack's FalkorDB service.
+
 The LLM status is reported at startup; the chat endpoint stays honest (503)
 until ARCHIVIST_LLM_* is configured — or a script is given. ``--llm-script``
 starts a *capture/demo* server: the agent loop, tools and graph are real,
@@ -19,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -103,11 +109,33 @@ def load_scenarios(path: str) -> list[list[dict]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--graph", default="repo:flask", help="FalkorDB graph name")
-    parser.add_argument("--host", default="127.0.0.1", help="FalkorDB host")
-    parser.add_argument("--port", type=int, default=6379, help="FalkorDB port")
-    parser.add_argument("--bind", default="127.0.0.1", help="HTTP bind address")
-    parser.add_argument("--http-port", type=int, default=8787, help="HTTP port")
+    parser.add_argument(
+        "--graph",
+        default=os.environ.get("ARCHIVIST_GRAPH", "repo:flask"),
+        help="FalkorDB graph name",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("FALKORDB_HOST", "127.0.0.1"),
+        help="FalkorDB host",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("FALKORDB_PORT", "6379")),
+        help="FalkorDB port",
+    )
+    parser.add_argument(
+        "--bind",
+        default=os.environ.get("ARCHIVIST_BIND", "127.0.0.1"),
+        help="HTTP bind address",
+    )
+    parser.add_argument(
+        "--http-port",
+        type=int,
+        default=int(os.environ.get("ARCHIVIST_PORT", "8787")),
+        help="HTTP port",
+    )
     parser.add_argument(
         "--llm-script",
         metavar="FILE",

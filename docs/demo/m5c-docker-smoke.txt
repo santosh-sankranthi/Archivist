@@ -1,0 +1,114 @@
+# M5c — Docker Compose smoke — 2026-10-16 ~20:35 UTC (WSL2 dev box)
+
+Stack: falkordb/falkordb:v4.22.1 + archivist-app (Console v2 built inside the
+image; docker 29.1.3, compose v5.6.0). Host ports were overridden for the smoke
+(FALKORDB_PORT=6390, ARCHIVIST_PORT=8795) because this box already runs the live
+dev stack on 6379/8787 — compose defaults are unchanged.
+
+## Stack up
+
+$ docker compose ps
+  NAME                   IMAGE                       COMMAND                  SERVICE    CREATED              STATUS                   PORTS
+  archivist-app-1        archivist-app               "python scripts/serv…"   app        About a minute ago   Up About a minute        127.0.0.1:8795->8787/tcp
+  archivist-falkordb-1   falkordb/falkordb:v4.22.1   "/var/lib/falkordb/b…"   falkordb   2 minutes ago        Up 2 minutes (healthy)   127.0.0.1:6390->6379/tcp
+
+## App boot line
+  app-1  | Archivist console — http://0.0.0.0:8787
+  app-1  |   graph=repo:archivist llm=configured
+  app-1  |   Ctrl-C to stop
+
+## Ingest — this repository, mounted read-only
+
+$ docker compose run --rm -v $PWD:/repo:ro app python scripts/ingest.py --repo /repo --graph repo:archivist
+  (working tree includes the nested flask checkout under data/; the git history
+   is the archivist repo itself, 47 commits)
+  ingest: repo=/repo
+  ingest: graph=repo:archivist falkordb=falkordb:6379 
+  run_id=20261016T203519Z-6a88a4c9
+  [1/6] walking tree
+        362 text files
+        symbols=2048 imports=951 calls=6302 parse_failures=0
+  [2/6] resolving call sites
+        edges=1347 exact=1506 weak_unique=2 weak_module=209 unresolved=4585 
+  (ambiguous=0)
+  [3/6] reading git history
+        47 commits · 1 authors · 342 file changes
+  [4/6] writing graph
+  [5/6] pruning stale nodes
+        indexes: created=['range Symbol.name', 'range File.path', 'range 
+  Commit.sha', 'range Module.name', 'fulltext Symbol.name', 'range Episode.id', 
+  'range Fact.id'] existing=-
+  [6/6] done in 3.8s
+  
+  Archivist ingest v0 — /repo
+  head d9f29f0ba24a · graph 'repo:archivist' · run 20261016T203519Z-6a88a4c9 · 
+  3.76s · 362 files · parse failures 0
+  Graph counts (total)           
+  ┏━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━┓
+  ┃ kind ┃ label / type ┃ count ┃
+  ┡━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━┩
+  │ node │ Author       │     1 │
+  │ node │ Commit       │    47 │
+  │ node │ File         │   383 │
+  │ node │ Module       │   176 │
+  │ node │ Repo         │     1 │
+  │ node │ Symbol       │  2006 │
+  │ edge │ AUTHORED     │    47 │
+  │ edge │ CALLS        │  1347 │
+  │ edge │ DEFINES      │  2006 │
+  │ edge │ HEAD         │     1 │
+  │ edge │ IMPORTS      │   951 │
+  │ edge │ MODIFIED     │   342 │
+  │ edge │ PARENT       │    46 │
+  └──────┴──────────────┴───────┘
+  Cypher smoke tests
+    · top authors by commits
+        santosh-sankranthi  ·  47
+    · most-touched files (with churn)
+        tests/test_webapp.py  ·  9  ·  692.0
+        src/archivist/webapp.py  ·  8  ·  1417.0
+        src/archivist/tools.py  ·  8  ·  706.0
+        README.md  ·  8  ·  255.0
+        docs/graph-model.md  ·  8  ·  167.0
+    · symbol hotspots (files by defs)
+        data/flask/tests/test_basic.py  ·  256
+        data/flask/tests/test_blueprints.py  ·  168
+        data/flask/tests/test_templating.py  ·  84
+        data/flask/tests/test_cli.py  ·  66
+        data/flask/tests/test_views.py  ·  66
+    · 3-hop: who touches importers of 'flask'
+        (no rows)
+    · most-called symbols (fan-in)
+        Flask  ·  data/flask/src/flask/app.py  ·  88  ·  66
+        Blueprint  ·  data/flask/src/flask/blueprints.py  ·  66  ·  52
+        url_for  ·  data/flask/src/flask/helpers.py  ·  50  ·  40
+        Flask.test_client  ·  data/flask/src/flask/app.py  ·  43  ·  40
+        render_template  ·  data/flask/src/flask/templating.py  ·  41  ·  40
+        Flask.test_request_context  ·  data/flask/src/flask/app.py  ·  38  ·  31
+        WebApp._ro  ·  src/archivist/webapp.py  ·  29  ·  13
+        Flask.app_context  ·  data/flask/src/flask/app.py  ·  27  ·  26
+        LLMResponse  ·  src/archivist/llm.py  ·  26  ·  19
+        ApiError  ·  src/archivist/webapp.py  ·  25  ·  12
+    · cross-file calls (top pairs)
+        test_find_best_app  ·  find_best_app  ·  8
+        test_find_best_app.Module  ·  Flask  ·  7
+        test_scriptinfo  ·  ScriptInfo  ·  7
+        main  ·  LLMResponse  ·  6
+        main  ·  RepoGraph  ·  6
+        call  ·  LLMResponse  ·  5
+        test_callers_depth_chains_and_weak_filter  ·  RepoGraph.callers  ·  5
+        call  ·  ToolCall  ·  5
+        test_templates_auto_reload  ·  Flask  ·  5
+        test_find_best_app.Module.create_app  ·  Flask  ·  5
+
+## Live reads through the published port
+
+$ curl -s http://127.0.0.1:8795/api/state
+  {"graph": "repo:archivist", "repo": {"name": "repo", "path": "/repo", "head": "d9f29f0ba24a334636ba3ee91e1074548350a58d", "updated_at": 1792182922}, "nodes": [{"label": "Author", "count": 1}, {"label": "Commit", "count": 47}, {"label": "File", "count": 383}, {"label": "Module", "count": 176}, {"label": "Repo", "count": 1}, {"label": "Symbol", "count": 2006}], "edges": [{"type": "AUTHORED", "count": 47}, {"type": "CALLS", "count": 1347}, {"type": "DEFINES", "count": 2006}, {"type": "HEAD", "count": 1}, {"type": "IMPORTS", "count": 951}, {"type": "MODIFIED", "count": 342}, {"type": "PARENT", "count": 46}], "memory": {"sessions": 0, "facts": 0, "latest": null}, "llm": {"configured": true, "model": "deepseek-v4-pro"}}
+$ status codes
+  /console/           -> 200
+  /                   -> 302 (302 -> /console/)
+  /api/graph/overview -> 200
+
+Notes: before the first ingest, read endpoints report the missing graph (honest
+400 from FalkorDB empty key); the console shell itself still serves.

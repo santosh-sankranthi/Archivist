@@ -1,0 +1,20 @@
+# Build-context hygiene: the image needs src/, scripts/, console/ (stage 1),
+# requirements, and metadata only. Never ship local state or secrets.
+.env
+.git/
+.venv/
+data/
+docs/
+tests/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.log
+.DS_Store
+.idea/
+.vscode/
+# console: rebuilt inside the image; local outputs never enter the context
+console/node_modules/
+console/dist/
