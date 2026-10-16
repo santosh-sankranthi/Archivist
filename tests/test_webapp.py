@@ -604,6 +604,16 @@ def test_induced_resolves_commit_refs(web_server: str):
     assert len(modified) == 2
     assert all(e["source"] in commit_ids for e in modified)
 
+    # The fixture history is linear and these are its two newest commits,
+    # so the replay must also absorb their PARENT edge (child → parent;
+    # seq is git-log position, 0 = newest — so the child has the lower seq).
+    paren = [e for e in step["edges"] if e["rel"] == "PARENT"]
+    assert len(paren) == 1
+    assert paren[0]["source"] in commit_ids and paren[0]["target"] in commit_ids
+    by_id = {n["id"]: n for n in step["nodes"] if n["type"] == "Commit"}
+    child, parent = by_id[paren[0]["source"]], by_id[paren[0]["target"]]
+    assert child["props"]["seq"] < parent["props"]["seq"]
+
     # Abbreviated shas resolve too (STARTS WITH), for hand-built requests.
     status, data = post_json(
         web_server + "/api/graph/induced",
