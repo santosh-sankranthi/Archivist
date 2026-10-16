@@ -1,9 +1,10 @@
 # Console v2 demo captures (M4R)
 
-Re-shot **2026-10-16 ~19:18Z** against the post-gate build (console at the
+Re-shot **2026-10-16 ~19:13Z** against the post-gate build (console at the
 "M4R step 4 adoption" commits; served at `/console/`; ask scenes ran
 against the scripted capture server `:8789` — real loop, tools and graph,
-only the model's next-move choices are canned).
+only the model's next-move choices are canned). `07-about` was refreshed
+~19:33Z when the diagram's index annotation was rebound to its source.
 
 Notes:
 

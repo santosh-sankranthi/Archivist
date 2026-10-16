@@ -291,7 +291,7 @@ function ArchDiagram({ files, commits }: { files: number | null; commits: number
       <Chip x={588} y={120} w={44} label="Fact" />
       <line className={styles.dgLine} x1={516} y1={150} x2={744} y2={150} />
       <text className={styles.dgSub} x={516} y={168}>
-        7 indexes · every read is a query
+        7 index definitions · graph.py
       </text>
 
       {/* 04 — consumers */}
