@@ -169,6 +169,13 @@ def test_callers_depth_chains_and_weak_filter(tmp_path, falkordb_or_skip, temp_g
     assert main_row["counts"] == [1, 1]
     assert main_row["weaks"] == [False, False]
 
+    # The limit cut is disclosed, not silent (REVIEW-M4R Gate C O1).
+    capped = tools.callers("leaf", depth=2, limit=1)
+    assert [(r["caller"], r["hops"]) for r in capped["results"]] == [("helper", 1)]
+    assert any(
+        "showing 1 of 2 distinct callers" in note for note in capped["notes"]
+    ), "limit truncation must be surfaced in notes"
+
     # Inject a weak (guessed) edge main -> leaf: excluded by default...
     writer = GraphWriter(host=host, port=port, graph=temp_graph)
     writer.smoke(
@@ -212,6 +219,12 @@ def test_callees_chain(tmp_path: Path, falkordb_or_skip, temp_graph):
     leaf_row = deep["results"][1]
     assert [n["qualname"] for n in leaf_row["chain"]] == ["main", "helper", "leaf"]
     assert deep["notes"] == ["source = main"]
+
+    capped = tools.callees("main", depth=2, limit=1)
+    assert [(r["callee"], r["hops"]) for r in capped["results"]] == [("helper", 1)]
+    assert any(
+        "showing 1 of 2 distinct callees" in note for note in capped["notes"]
+    ), "limit truncation must be surfaced in notes"
 
 
 def test_importers_history_owners_commits(tmp_path: Path, falkordb_or_skip, temp_graph):

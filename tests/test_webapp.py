@@ -142,6 +142,34 @@ def test_console_refuses_traversal(tmp_path, monkeypatch):
         assert info.value.status == 404, rel
 
 
+def test_console_symlinked_dist_serves(tmp_path, monkeypatch):
+    """A symlinked ``console/dist`` must serve, not false-404 (REVIEW-M4R W1).
+
+    The containment gate canonicalizes its base before comparing, so
+    ``ln -s`` build-dir setups work while escapes through the link are
+    still refused.
+    """
+    real = tmp_path / "real-dist"
+    (real / "assets").mkdir(parents=True)
+    (real / "index.html").write_text('<!doctype html><div id="root"></div>')
+    (real / "assets" / "app.js").write_text("console.log(1)")
+    link = tmp_path / "dist"
+    link.symlink_to(real)
+    monkeypatch.setattr("archivist.webapp.CONSOLE_DIR", link)
+    app = WebApp()
+
+    status, content_type, body = app._console("/")
+    assert status == 200 and b'id="root"' in body and "text/html" in content_type
+    status, _, body = app._console("assets/app.js")
+    assert status == 200 and body == b"console.log(1)"
+
+    # Escapes are still refused: the block holds through the symlink too.
+    for rel in ("../outside.js", "assets/../../outside.js"):
+        with pytest.raises(ApiError) as info:
+            app._console(rel)
+        assert info.value.status == 404, rel
+
+
 def test_console_serves_built_app(web_server: str):
     """When console/dist exists: index, assets, SPA fallback, real 404s."""
     from archivist.webapp import CONSOLE_DIR
@@ -548,6 +576,41 @@ def test_induced_resolves_evidence_and_edges(web_server: str):
     pairs = {(e["source"], e["target"]) for e in step["edges"] if e["rel"] == "CALLS"}
     assert (ids["app.py:main"], ids["util.py:helper"]) in pairs
     assert (ids["util.py:helper"], ids["util.py:leaf"]) in pairs
+
+
+def test_induced_resolves_commit_refs(web_server: str):
+    """History steps replay as a commit → file chain (Gate A W1)."""
+    _, file_data = get_json(web_server + "/api/graph/file?path=app.py")
+    shas = [row["sha"] for row in file_data["history"][:2]]
+    assert len(shas) == 2
+
+    status, data = post_json(
+        web_server + "/api/graph/induced",
+        {
+            "steps": [
+                {
+                    "id": "h0",
+                    "files": [{"path": "app.py"}],
+                    "commits": [{"sha": sha} for sha in shas],
+                }
+            ]
+        },
+    )
+    assert status == 200
+    step = data["steps"][0]
+    commit_ids = {n["id"] for n in step["nodes"] if n["type"] == "Commit"}
+    assert len(commit_ids) == 2
+    modified = [e for e in step["edges"] if e["rel"] == "MODIFIED"]
+    assert len(modified) == 2
+    assert all(e["source"] in commit_ids for e in modified)
+
+    # Abbreviated shas resolve too (STARTS WITH), for hand-built requests.
+    status, data = post_json(
+        web_server + "/api/graph/induced",
+        {"steps": [{"id": "h1", "commits": [{"sha": shas[0][:8]}]}]},
+    )
+    assert status == 200
+    assert any(n["type"] == "Commit" for n in data["steps"][0]["nodes"])
 
 
 def test_induced_is_honest_about_missing_refs(web_server: str):
