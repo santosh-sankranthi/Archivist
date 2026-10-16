@@ -1,4 +1,5 @@
 import { formatInt, shortSha } from "../lib/format";
+import { graphTotals } from "../lib/stats";
 import type { GraphState } from "../lib/types";
 import styles from "./TopBar.module.css";
 
@@ -11,12 +12,8 @@ interface Props {
 export function TopBar({ state, onOpenPalette }: Props) {
   const isMac =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-  const counts = state
-    ? {
-        nodes: state.nodes.reduce((sum, row) => sum + row.count, 0),
-        edges: state.edges.reduce((sum, row) => sum + row.count, 0),
-      }
-    : null;
+  const totals = state ? graphTotals(state) : null;
+  const counts = totals ? { nodes: totals.nodes, edges: totals.edges } : null;
   const llm = state?.llm ?? null;
 
   return (

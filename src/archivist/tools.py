@@ -348,6 +348,15 @@ class RepoGraph:
             deduped.values(), key=lambda r: (r["hops"], r["file"], r["caller"])
         )[:limit]
         notes = [f"target = {target['qualname']}"]
+        if len(deduped) > limit:
+            # Say what we hide: a limit cut must not read as a total
+            # (REVIEW-M4R Gate C O1). "at least" when the raw walk itself
+            # hit its cap, so the count is a floor, not a census.
+            scope = "at least " if len(rows) >= cap else ""
+            notes.append(
+                f"showing {limit} of {scope}{len(deduped)} distinct callers"
+                f" (limit={limit})"
+            )
         if not include_weak:
             notes.extend(
                 self._hidden_weak_note("caller", "in", target, depth, cap, deduped)
@@ -410,6 +419,13 @@ class RepoGraph:
             deduped.values(), key=lambda r: (r["hops"], r["file"], r["callee"])
         )[:limit]
         notes = [f"source = {source['qualname']}"]
+        if len(deduped) > limit:
+            # Mirror of `callers`: the limit cut is disclosed, not silent.
+            scope = "at least " if len(rows) >= cap else ""
+            notes.append(
+                f"showing {limit} of {scope}{len(deduped)} distinct callees"
+                f" (limit={limit})"
+            )
         if not include_weak:
             notes.extend(
                 self._hidden_weak_note("callee", "out", source, depth, cap, deduped)

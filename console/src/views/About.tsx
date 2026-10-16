@@ -1,10 +1,26 @@
+import { formatInt } from "../lib/format";
 import { href, navigate } from "../lib/router";
+import { graphTotals } from "../lib/stats";
+import type { GraphState } from "../lib/types";
 import styles from "./About.module.css";
+
+interface Props {
+  state: GraphState | null;
+  stateError: string | null;
+}
 
 /** About / judges page — what this is, the pipeline diagram, FalkorDB's
  *  load-bearing role, the track map, and the honest limits. Every claim
- *  here points at a module in the repo or a live number on this console. */
-export function About() {
+ *  here points at a module in the repo or a live number on this console —
+ *  the numbers interpolate from `/api/state` (refresh like the shell),
+ *  never frozen at authoring time. */
+export function About({ state, stateError }: Props) {
+  const totals = state ? graphTotals(state) : null;
+  const files = totals?.byLabel.get("File") ?? null;
+  const commits = totals?.byLabel.get("Commit") ?? null;
+  const authors = totals?.byLabel.get("Author") ?? null;
+  const num = (value: number | null): string => (value === null ? "—" : formatInt(value));
+
   return (
     <div className={styles.about}>
       <section className={styles.head}>
@@ -61,7 +77,7 @@ export function About() {
         <h2 id="about-pipeline" className={styles.h2}>
           The pipeline
         </h2>
-        <ArchDiagram />
+        <ArchDiagram files={files} commits={commits} />
         <p className={styles.caption}>
           One path in; a single store at the centre. The console, the agent&rsquo;s tools, and
           memory recall all read the same graph — no side databases, no cached copies.
@@ -97,8 +113,8 @@ export function About() {
           </li>
           <li className={styles.claim}>
             <span className={styles.claimLead}>Indexed for the reads we actually make.</span>{" "}
-            Range + fulltext indexes are applied at ingest and EXPLAIN-verified — seven
-            operational on this graph.
+            Range + fulltext indexes are applied at ingest and EXPLAIN-verified
+            (<code>ingest.py</code>).
           </li>
         </ul>
       </section>
@@ -129,8 +145,9 @@ export function About() {
             <span className={styles.trackIndex}>03</span>
             <h3 className={styles.trackTitle}>Company brain</h3>
             <p className={styles.trackBody}>
-              People ↔ code: 874 authors, ownership by area, and 5,562 commits of archaeology
-              — &ldquo;who should review this?&rdquo; answered from history, not vibes.
+              People ↔ code: {num(authors)} authors, ownership by area, and {num(commits)}{" "}
+              commits of archaeology — &ldquo;who should review this?&rdquo; answered from
+              history, not vibes.
             </p>
           </article>
         </div>
@@ -157,7 +174,17 @@ export function About() {
       </section>
 
       <div className={styles.footNote}>
-        Read live from <code>repo:flask</code> — 8,824 nodes, 25,360 edges, 17 sessions.
+        {state && totals ? (
+          <>
+            Read live from <code>{state.graph}</code> — {formatInt(totals.nodes)} nodes,{" "}
+            {formatInt(totals.edges)} edges, {formatInt(state.memory.sessions)} sessions in
+            memory.
+          </>
+        ) : stateError ? (
+          <>Live numbers unavailable right now — {stateError}.</>
+        ) : (
+          <>Reading the live graph…</>
+        )}
       </div>
     </div>
   );
@@ -166,7 +193,7 @@ export function About() {
 /** The pipeline diagram — inline SVG, drawn to the Ink & Signal tokens.
  *  Restrained on purpose: hairlines for flow, amber only where the store
  *  sits, mono labels like a schematic. */
-function ArchDiagram() {
+function ArchDiagram({ files, commits }: { files: number | null; commits: number | null }) {
   const chip = { h: 22, textDy: 15 };
   function Chip({
     x,
@@ -229,13 +256,13 @@ function ArchDiagram() {
         codebase
       </text>
       <text className={styles.dgValue} x={16} y={70}>
-        flask — 643 files
+        flask — {files === null ? "…" : `${formatInt(files)} files`}
       </text>
       <text className={styles.dgSub} x={16} y={102}>
         git history
       </text>
       <text className={styles.dgValue} x={16} y={120}>
-        5,562 commits
+        {commits === null ? "…" : `${formatInt(commits)} commits`}
       </text>
 
       {/* 02 — ingest */}

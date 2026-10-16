@@ -20,6 +20,7 @@ import type {
   Css,
   EdgeSingular,
   LayoutOptions,
+  Layouts,
   NodeSingular,
   StylesheetJson,
 } from "cytoscape";
@@ -221,6 +222,14 @@ export function GraphCanvas({
   const drawnEdgesRef = useRef<EdgeSingular[]>([]);
   const pulseRef = useRef<HTMLSpanElement | null>(null);
   const ringRef = useRef<HTMLSpanElement | null>(null);
+
+  /* Layout lifecycle: a generation counter invalidates stale `layoutstop`
+   * callbacks and camera animations when a newer payload supersedes an
+   * in-flight layout (removing elements does not stop a running layout).
+   * Without it, a fast hub-to-hub switch could fit the camera to a
+   * mid-layout graph and set the capture contract's `data-settled` early. */
+  const layoutGenRef = useRef(0);
+  const layoutRef = useRef<Layouts | null>(null);
 
   function clearTraceTimers(): void {
     for (const id of traceTimersRef.current) window.clearTimeout(id);
@@ -439,6 +448,9 @@ export function GraphCanvas({
     const cy = cyRef.current;
     const container = containerRef.current;
     if (!cy || !container) return;
+    const gen = (layoutGenRef.current += 1);
+    layoutRef.current?.stop();
+    layoutRef.current = null;
     stopTrace();
     container.dataset.settled = "0";
     cy.elements().remove();
@@ -490,6 +502,9 @@ export function GraphCanvas({
           } as unknown as LayoutOptions);
     const fitPadding = spread === "wide" ? 42 : 26;
     layout.one("layoutstop", () => {
+      // A superseded layout never touches the camera, the settled stamp,
+      // or the pending trace chain — only the latest generation may.
+      if (layoutGenRef.current !== gen) return;
       container.dataset.settled = "1";
       if (ripple && !reduce) {
         // Camera fit for replay: a short glide, then the subject ring.
@@ -499,7 +514,7 @@ export function GraphCanvas({
             duration: 320,
             easing: "ease-out-cubic",
             complete: () => {
-              showRipple();
+              if (layoutGenRef.current === gen) showRipple();
             },
           },
         );
@@ -508,7 +523,13 @@ export function GraphCanvas({
       }
       maybeStartTrace();
     });
+    layoutRef.current = layout;
     layout.run();
+    return () => {
+      layoutGenRef.current += 1;
+      layoutRef.current?.stop();
+      layoutRef.current = null;
+    };
   }, [payload, spread, ripple]);
 
   // Spotlight + selection classes.
@@ -516,7 +537,10 @@ export function GraphCanvas({
     const cy = cyRef.current;
     if (!cy) return;
     cy.elements().removeClass("dim lit sel");
-    if (spotlight) {
+    // An empty spotlight means "nothing to light" — leave the canvas neutral
+    // rather than dimming everything with zero feedback (Gate A W1:
+    // ref-less steps used to dim the whole graph and light nothing).
+    if (spotlight && (spotlight.nodes.size > 0 || spotlight.edges.size > 0)) {
       cy.nodes().forEach((node) => {
         const id = node.data("nodeId") as number;
         node.toggleClass("dim", !spotlight.nodes.has(id));

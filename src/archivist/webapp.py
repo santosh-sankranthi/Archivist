@@ -67,6 +67,7 @@ MAX_INDUCED_STEPS = 12
 MAX_STEP_SYMBOLS = 120
 MAX_STEP_FILES = 80
 MAX_STEP_MODULES = 40
+MAX_STEP_COMMITS = 40
 MAX_BODY = 1_000_000  # POST bodies beyond this are refused (413) before parsing
 # Public-exposure guard (M5): in-flight requests are capped so a tunnel in
 # front of the console cannot amplify a flood of connections into a flood of
@@ -386,12 +387,18 @@ class WebApp:
         never asked to build it); a missing file with an extension is a 404
         (a stale asset reference, not a route); anything else is a client
         route and gets ``index.html``.
+
+        The containment gate canonicalizes its base first: a symlinked
+        ``console/dist`` (shared build dirs, stow-style setups) must serve,
+        while a symlink *inside* dist pointing outside is still refused
+        (REVIEW-M4R B1 W1).
         """
         rel = rel.lstrip("/") or "index.html"
-        target = (CONSOLE_DIR / rel).resolve()
-        if not target.is_relative_to(CONSOLE_DIR):
+        base = CONSOLE_DIR.resolve()
+        target = (base / rel).resolve()
+        if not target.is_relative_to(base):
             raise ApiError(404, "no such console asset")
-        index = CONSOLE_DIR / "index.html"
+        index = base / "index.html"
         if not index.is_file():
             raise ApiError(
                 503,
@@ -821,17 +828,17 @@ class WebApp:
         """Induced subgraph of an Ask step's evidence (M4R "Trace Ribbon").
 
         The client sends plain refs per step — the same ``(file, qualname)`` /
-        path / module values its tool result points at. We resolve them to
-        graph nodes and add the typed edges *among* those nodes. Nothing is
-        guessed: unresolved refs and every cap land in ``notes``, and edges
-        keep their ``weak`` flag for the UI to label.
+        path / module / commit-sha values its tool result points at. We resolve
+        them to graph nodes and add the typed edges *among* those nodes.
+        Nothing is guessed: unresolved refs and every cap land in ``notes``,
+        and edges keep their ``weak`` flag for the UI to label.
         """
         steps = body.get("steps")
         if not isinstance(steps, list) or not steps:
             raise ApiError(
                 400,
                 'pass {"steps": [{"id": "...", "symbols": [{"file", "qualname"}],'
-                ' "files": [...], "modules": [...]}]}',
+                ' "files": [...], "modules": [...], "commits": [{"sha"}]}]}',
             )
         if len(steps) > MAX_INDUCED_STEPS:
             raise ApiError(400, f"too many steps ({MAX_INDUCED_STEPS} max)")
@@ -857,14 +864,22 @@ class WebApp:
             names = _induced_refs(
                 item.get("modules"), ("name",), MAX_STEP_MODULES, "module", notes
             )
-            nodes, edges = self._induced_elements(pairs, paths, names, notes)
+            shas = _induced_refs(
+                item.get("commits"), ("sha",), MAX_STEP_COMMITS, "commit", notes
+            )
+            nodes, edges = self._induced_elements(pairs, paths, names, shas, notes)
             payload = finalize(nodes, edges, notes=notes)
             payload["id"] = sid
             out.append(payload)
         return {"steps": out}
 
     def _induced_elements(
-        self, pairs: list[dict], paths: list[dict], names: list[dict], notes: list[str]
+        self,
+        pairs: list[dict],
+        paths: list[dict],
+        names: list[dict],
+        shas: list[dict],
+        notes: list[str],
     ) -> tuple[dict[int, dict], dict[int, dict]]:
         """Resolve refs to nodes; absorb typed edges among them."""
         nodes: dict[int, dict] = {}
@@ -902,10 +917,22 @@ class WebApp:
                     {"names": [n["name"] for n in names]},
                 )
             )
+        if shas:
+            expected += len(shas)
+            absorb(
+                self._ro(
+                    # STARTS WITH tolerates abbreviated shas; the client
+                    # sends the full values from the recorded rows.
+                    "UNWIND $shas AS s MATCH (c:Commit) "
+                    "WHERE c.sha STARTS WITH s.sha RETURN c",
+                    {"shas": shas},
+                )
+            )
 
         symbol_ids = [nid for nid, node in nodes.items() if node["type"] == "Symbol"]
         file_ids = [nid for nid, node in nodes.items() if node["type"] == "File"]
         module_ids = [nid for nid, node in nodes.items() if node["type"] == "Module"]
+        commit_ids = [nid for nid, node in nodes.items() if node["type"] == "Commit"]
         if len(symbol_ids) >= 2:
             absorb(
                 self._ro(
@@ -928,6 +955,23 @@ class WebApp:
                     "MATCH (f:File)-[r:DEFINES]->(s:Symbol) "
                     "WHERE id(f) IN $fids AND id(s) IN $sids RETURN f, r, s",
                     {"fids": file_ids, "sids": symbol_ids},
+                )
+            )
+        if commit_ids and file_ids:
+            # History steps replay as a commit → file chain (Gate A W1).
+            absorb(
+                self._ro(
+                    "MATCH (c:Commit)-[r:MODIFIED]->(f:File) "
+                    "WHERE id(c) IN $cids AND id(f) IN $fids RETURN c, r, f",
+                    {"cids": commit_ids, "fids": file_ids},
+                )
+            )
+        if len(commit_ids) >= 2:
+            absorb(
+                self._ro(
+                    "MATCH (a:Commit)-[r:PARENT]->(b:Commit) "
+                    "WHERE id(a) IN $ids AND id(b) IN $ids RETURN a, r, b",
+                    {"ids": commit_ids},
                 )
             )
 

@@ -55,7 +55,9 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
   const [remember, setRemember] = useState(true);
   const [active, setActive] = useState<{ turn: number; step: number } | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
-  const ranRef = useRef(false);
+  // Deep links: remember which ?q= we already ran, so a same-route
+  // navigation to a new question consumes it (and a repeat never reruns).
+  const ranRef = useRef<string | null>(null);
 
   const busy = turns.some((turn) => turn.phase.kind === "running");
   const last = turns[turns.length - 1];
@@ -65,11 +67,13 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
   }, [turns.length, last?.phase.kind]);
 
   useEffect(() => {
-    if (autoRun && initialQuestion && !ranRef.current) {
-      ranRef.current = true;
-      void run(initialQuestion);
-    }
-    // run is defined per render but guarded one-shot; deps intentional.
+    if (!autoRun || initialQuestion === null) return;
+    const question = initialQuestion.trim();
+    if (!question || ranRef.current === question) return;
+    ranRef.current = question;
+    void run(question);
+    // run is defined per render; the guard dedupes by question *value* —
+    // a fresh deep link (⌘K ask, starter, ?q= change) runs once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRun, initialQuestion]);
 
@@ -179,6 +183,11 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
       : null;
   const activeReplay = active ? activeTurn?.replay?.byStep.get(active.step) : undefined;
   const canvas = activeTurn?.replay?.merged ?? latestReplay?.merged ?? null;
+  // True when the active chip has no subgraph of its own: no replay bundle
+  // (nothing to resolve) or an empty one. The canvas then says so instead
+  // of dimming silently (Gate A W1).
+  const activeHasNoSubgraph =
+    active != null && (activeReplay == null || activeReplay.nodes.length === 0);
 
   const thread = (
     <div className={stage ? styles.stageThread : styles.panelThread} role="log">
@@ -376,9 +385,19 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
               spotlight={active && activeTurn?.replay ? spotlightFor(activeReplay) : null}
             />
             <div className={styles.canvasMeta}>
-              {formatInt(canvas.nodes.length)} nodes · {formatInt(canvas.edges.length)}{" "}
-              edges
-              {active ? " · click the chip again to release" : " · light a step via its chip"}
+              {activeHasNoSubgraph ? (
+                <>
+                  this step&rsquo;s evidence has no subgraph to draw — its rows are in
+                  the step panel
+                  {active ? " · click the chip again to release" : null}
+                </>
+              ) : (
+                <>
+                  {formatInt(canvas.nodes.length)} nodes · {formatInt(canvas.edges.length)}{" "}
+                  edges
+                  {active ? " · click the chip again to release" : " · light a step via its chip"}
+                </>
+              )}
             </div>
           </>
         ) : (

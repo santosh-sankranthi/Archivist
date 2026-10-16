@@ -5,6 +5,7 @@ import { useApi } from "../lib/api";
 import { clampText, formatInt, relTime, shortSha } from "../lib/format";
 import { STARTERS } from "../lib/questions";
 import { href, navigate } from "../lib/router";
+import { graphTotals } from "../lib/stats";
 import type { Activity, GraphState, Overview } from "../lib/types";
 import styles from "./Home.module.css";
 
@@ -21,13 +22,13 @@ export function Home({ state, stateError, overview }: Props) {
 
   const stats = state
     ? (() => {
-        const byLabel = new Map(state.nodes.map((row) => [row.label, row.count]));
+        const totals = graphTotals(state);
         return {
-          nodes: state.nodes.reduce((sum, row) => sum + row.count, 0),
-          edges: state.edges.reduce((sum, row) => sum + row.count, 0),
-          files: byLabel.get("File") ?? 0,
-          symbols: byLabel.get("Symbol") ?? 0,
-          commits: byLabel.get("Commit") ?? 0,
+          nodes: totals.nodes,
+          edges: totals.edges,
+          files: totals.byLabel.get("File") ?? 0,
+          symbols: totals.byLabel.get("Symbol") ?? 0,
+          commits: totals.byLabel.get("Commit") ?? 0,
         };
       })()
     : null;

@@ -13,7 +13,9 @@
   /* Text */
   --text-hi: #eceef4;
   --text-mid: #a8b0c0;
-  --text-low: #6e7687;
+  /* Lifted from #6e7687 for WCAG AA on every surface it labels
+     (10–12px informational text; Gate A W2 measured it at 3.6–4.4:1). */
+  --text-low: #828ca0;
 
   /* Signal amber — the one accent */
   --amber: #e9ae58;

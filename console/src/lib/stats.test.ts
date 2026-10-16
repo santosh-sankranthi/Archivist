@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveLandingStats } from "./stats";
+import { deriveLandingStats, graphTotals } from "./stats";
 import type { GraphState } from "./types";
 
 const STATE: GraphState = {
@@ -20,6 +20,22 @@ const STATE: GraphState = {
   memory: { sessions: 0, facts: 0, latest: null },
   llm: { configured: false, model: null },
 };
+
+describe("graphTotals", () => {
+  it("returns totals and a per-label lookup", () => {
+    const totals = graphTotals(STATE);
+    expect(totals.nodes).toBe(285);
+    expect(totals.edges).toBe(65);
+    expect(totals.byLabel.get("File")).toBe(30);
+  });
+
+  it("omits absent labels from the lookup", () => {
+    const sparse: GraphState = { ...STATE, nodes: [{ label: "File", count: 3 }] };
+    const totals = graphTotals(sparse);
+    expect(totals.byLabel.get("Commit")).toBeUndefined();
+    expect(totals.nodes).toBe(3);
+  });
+});
 
 describe("deriveLandingStats", () => {
   it("sums nodes and edges across labels", () => {

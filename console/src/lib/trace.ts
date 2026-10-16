@@ -19,6 +19,7 @@ export interface EvidenceRefs {
   symbols: Array<{ file: string; qualname: string }>;
   files: Array<{ path: string }>;
   modules: Array<{ name: string }>;
+  commits: Array<{ sha: string }>;
 }
 
 /** One step's replayed subgraph (server projection, verbatim). */
@@ -94,11 +95,13 @@ export function queriesForStep(answer: AskAnswer, step: AskStep) {
 
 /** Map a step's result rows to plain refs for `/api/graph/induced`.
  *
- *  Only rows that *point at graph entities* are mapped — commits, authors,
- *  facts and aggregates intentionally stay out (a chip for those reads
- *  "no graph replay", instead of a made-up spotlight). */
+ *  Rows are mapped only when they *point at graph entities* — including
+ *  commit rows (``sha``), so history steps replay as a commit→file chain
+ *  instead of dimming to a lone node (Gate A W1). Authors, facts and
+ *  aggregates stay out; a chip for those shows the designed no-subgraph
+ *  state on the canvas rather than a made-up spotlight. */
 export function evidenceRefs(step: AskStep): EvidenceRefs {
-  const refs: EvidenceRefs = { symbols: [], files: [], modules: [] };
+  const refs: EvidenceRefs = { symbols: [], files: [], modules: [], commits: [] };
   const seen = new Set<string>();
   const addSymbol = (file: unknown, qualname: unknown): void => {
     const f = str(file);
@@ -121,6 +124,12 @@ export function evidenceRefs(step: AskStep): EvidenceRefs {
     seen.add(`m:${n}`);
     refs.modules.push({ name: n });
   };
+  const addCommit = (sha: unknown): void => {
+    const s = str(sha);
+    if (!s || seen.has(`c:${s}`)) return;
+    seen.add(`c:${s}`);
+    refs.commits.push({ sha: s });
+  };
 
   for (const row of resultRows(step)) {
     if (step.tool === "callers" || step.tool === "callees") {
@@ -137,6 +146,8 @@ export function evidenceRefs(step: AskStep): EvidenceRefs {
       addFile(row.file);
     } else if (step.tool === "find_symbols") {
       addSymbol(row.file, row.qualname);
+    } else if (step.tool === "file_history" || step.tool === "search_commits") {
+      addCommit(row.sha);
     }
   }
   if (step.tool === "file_history") addFile(step.params?.path);
@@ -151,7 +162,12 @@ export function replayRequest(
   const steps = answer.steps
     .map((step, index) => ({ id: String(index), ...evidenceRefs(step) }))
     .filter(
-      (item) => item.symbols.length + item.files.length + item.modules.length > 0,
+      (item) =>
+        item.symbols.length +
+          item.files.length +
+          item.modules.length +
+          item.commits.length >
+        0,
     );
   return steps.length > 0 ? { steps } : null;
 }

@@ -65,7 +65,7 @@ function Shell() {
   } else if (path === "/ask") {
     view = <AskView query={query} />;
   } else if (path === "/about") {
-    view = <About />;
+    view = <About state={state.data} stateError={state.error?.message ?? null} />;
   } else {
     view = <OffMap />;
   }

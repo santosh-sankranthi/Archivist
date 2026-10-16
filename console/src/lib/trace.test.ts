@@ -89,10 +89,31 @@ describe("evidenceRefs", () => {
       }),
     );
     expect(history.files).toEqual([{ path: "src/flask/helpers.py" }]);
+    expect(history.commits).toEqual([{ sha: "a".repeat(40) }]);
   });
 
-  it("stays empty for commit/author/memory steps (no graph replay)", () => {
-    for (const tool of ["owners", "search_commits", "recall", "remember", "overview"]) {
+  it("maps commit rows to deduped commit refs for search steps", () => {
+    const refs = evidenceRefs(
+      makeStep({
+        tool: "search_commits",
+        count: 3,
+        result: {
+          results: [
+            { sha: "d".repeat(40), summary: "x" },
+            { sha: "d".repeat(40), summary: "x" },
+            { sha: "e".repeat(40), summary: "y" },
+          ],
+        },
+      }),
+    );
+    expect(refs.commits).toEqual([
+      { sha: "d".repeat(40) },
+      { sha: "e".repeat(40) },
+    ]);
+  });
+
+  it("stays empty for author/memory/aggregate steps (no subgraph)", () => {
+    for (const tool of ["owners", "recall", "remember", "overview"]) {
       const refs = evidenceRefs(
         makeStep({
           tool,
@@ -102,6 +123,7 @@ describe("evidenceRefs", () => {
       expect(refs.symbols).toHaveLength(0);
       expect(refs.files).toHaveLength(0);
       expect(refs.modules).toHaveLength(0);
+      expect(refs.commits).toHaveLength(0);
     }
   });
 });
