@@ -14,7 +14,7 @@ from typing import ClassVar
 
 import pytest
 
-from archivist.llm import ChatLLM, LLMError
+from archivist.llm import USER_AGENT, ChatLLM, LLMError
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -109,6 +109,28 @@ def test_chat_omits_tools_when_none(server):
     sent = _Handler.requests[0]
     assert "tools" not in sent["body"]
     assert "Authorization" not in sent["headers"]
+
+
+def test_user_agent_sent_and_no_session_header_for_local(server):
+    _Handler.responses.append((200, {"choices": [{"message": {"content": "ok"}}]}))
+    llm = ChatLLM(base_url=server, api_key="k", model="m")
+    llm.chat([{"role": "user", "content": "hi"}])
+    sent = _Handler.requests[0]
+    assert sent["headers"]["User-Agent"] == USER_AGENT
+    assert "x-opencode-session" not in sent["headers"]
+
+
+def test_opencode_hosts_get_stable_session_header():
+    llm = ChatLLM(base_url="https://opencode.ai/zen/go/v1", api_key="k", model="m")
+    first = llm._request_headers()
+    assert first["User-Agent"] == USER_AGENT
+    assert first["x-opencode-session"] == llm.session_id
+    assert llm._request_headers()["x-opencode-session"] == llm.session_id  # stable
+    other = ChatLLM(base_url="https://opencode.ai/zen/go/v1", api_key="k", model="m")
+    assert other.session_id != llm.session_id  # one client == one conversation
+    opens = ChatLLM(base_url="https://api.openai.com/v1", api_key="k", model="m")
+    assert "x-opencode-session" not in opens._request_headers()
+    assert opens._request_headers()["Authorization"] == "Bearer k"
 
 
 def test_chat_http_error_raises_carries_status(server):

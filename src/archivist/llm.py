@@ -7,7 +7,9 @@ format so every call can be traced and replayed faithfully.
 
 Configuration (environment; a repo-root ``.env`` is honoured by the CLI):
 
-* ``ARCHIVIST_LLM_BASE_URL`` endpoint root, e.g. ``https://opencode.ai/zen/v1``
+* ``ARCHIVIST_LLM_BASE_URL`` endpoint root, e.g. ``https://opencode.ai/zen/go/v1``
+  (zen/go both supported; the client adds the required ``x-opencode-session``
+  header for opencode.ai endpoints)
 * ``ARCHIVIST_LLM_API_KEY``  bearer token (omit for keyless local servers)
 * ``ARCHIVIST_LLM_MODEL``    model id, e.g. ``deepseek-v4-pro``
 
@@ -26,10 +28,16 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+# A real User-Agent is sent on every request: some edges (opencode.ai among
+# them) block the stdlib's default ``Python-urllib/x.y`` at the CDN.
+USER_AGENT = "archivist/0.1"
 
 # HTTP statuses worth one more attempt: rate limits + transient server faults.
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -171,6 +179,9 @@ class ChatLLM:
         self.retries = max(0, int(retries))
         self.calls = 0
         self.usage: dict[str, int] = {}
+        # Stable per client: opencode.ai wants an ``x-opencode-session``
+        # routing header on every request; one client = one conversation.
+        self.session_id = uuid.uuid4().hex
 
     def is_configured(self) -> bool:
         """Best-effort check that the CLI should attempt a call at all."""
@@ -205,9 +216,8 @@ class ChatLLM:
             data=json.dumps(payload).encode(),
             method="POST",
         )
-        request.add_header("Content-Type", "application/json")
-        if self.api_key:
-            request.add_header("Authorization", f"Bearer {self.api_key}")
+        for name, value in self._request_headers().items():
+            request.add_header(name, value)
         data: dict = {}
         attempt = 0
         while True:  # bounded: continue only while attempt <= self.retries
@@ -260,6 +270,21 @@ class ChatLLM:
         return LLMResponse(
             content=content, tool_calls=tool_calls, raw=data, usage=usage
         )
+
+    def _request_headers(self) -> dict[str, str]:
+        """Headers for one request: JSON + auth, plus endpoint quirks.
+
+        opencode.ai rejects the stdlib's default User-Agent (its edge blocks
+        it) and requires a stable ``x-opencode-session`` routing header — so
+        both travel on opencode.ai requests from day one.
+        """
+        headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        host = urllib.parse.urlsplit(self.base_url).hostname or ""
+        if host == "opencode.ai" or host.endswith(".opencode.ai"):
+            headers["x-opencode-session"] = self.session_id
+        return headers
 
     def _backoff(self, attempt: int, retry_after: str | None) -> None:
         """Sleep before retry ``attempt``; honour ``Retry-After`` (both capped)."""

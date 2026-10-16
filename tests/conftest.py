@@ -17,6 +17,28 @@ if str(SRC) not in sys.path:
 
 from archivist.graph import GraphWriter
 
+_LLM_ENV_VARS = (
+    "ARCHIVIST_LLM_BASE_URL",
+    "ARCHIVIST_LLM_API_KEY",
+    "ARCHIVIST_LLM_MODEL",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_llm_env(monkeypatch):
+    """Keep tests hermetic against ambient LLM config.
+
+    ``scripts/ask.py`` loads a repo-root ``.env`` at import (by design) and a
+    developer shell may export keys too; neither may change what the tests
+    exercise, so every test starts with these variables cleared. Tests that
+    need env config set their own (see ``test_llm``).
+    """
+    for name in _LLM_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
 
 def git_commit(
     repo: Path, *args: str, name: str = "Dev One", email: str = "dev@example.com"
