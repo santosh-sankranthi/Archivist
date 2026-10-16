@@ -13,6 +13,20 @@ loop with auditable traces; bi-temporal memory; planner → investigator →
 verifier crew with handoffs as graph state; Console v2 — landing page, graph
 explorer with path finder, ask room with trace replay — see `docs/demo/`).
 
+## Demo
+
+[`docs/demo/archivist-demo.mp4`](docs/demo/archivist-demo.mp4) (2:36) — a
+full pass over the product: the landing, the live graph, explorer + path
+finder, the ask room with trace replay, cross-session memory recall, and the
+architecture page. Recorded against the live `repo:flask` graph; the ask
+scenes run the deterministic scripted-model mode (`serve.py --llm-script`,
+see `docs/demo/m4r/ask-script.json`) — the agent loop, tools, Cypher and
+every number on screen are live; only the model's next-move choices are
+canned, and the console's status chip reads `llm scripted (demo)` throughout.
+Captions: [`archivist-demo.srt`](docs/demo/archivist-demo.srt). Re-record with
+`scripts/record_demo.py` (one take + event timeline) and
+`scripts/assemble_demo.py` (caption burn + H.264 export).
+
 ## Quickstart (dev)
 
 Requires Python ≥ 3.11 and a FalkorDB instance on `127.0.0.1:6379`

@@ -4,5 +4,6 @@ __pycache__/
 .env
 data/
 *.log
+docs/demo/.raw/
 .pytest_cache/
 .ruff_cache/

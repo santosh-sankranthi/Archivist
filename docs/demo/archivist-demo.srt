@@ -1,0 +1,64 @@
+1
+00:00:02,065 --> 00:00:06,665
+Archivist — engineering intelligence, mapped.
+
+2
+00:00:06,965 --> 00:00:12,565
+Ask your codebase anything. Every answer arrives wired to the code that proves it.
+
+3
+00:00:15,828 --> 00:00:23,128
+A living graph of the codebase — read live from FalkorDB.
+
+4
+00:00:23,428 --> 00:00:29,828
+Hubs and fan-in — every number read from the graph, never estimated.
+
+5
+00:00:31,751 --> 00:00:38,151
+Search jumps straight into the call graph.
+
+6
+00:00:41,139 --> 00:00:47,739
+Selection lights the neighbourhood — the inspector carries the facts.
+
+7
+00:00:51,110 --> 00:00:58,610
+Paths light up hop by hop — weak, resolver-guessed edges are flagged, never hidden.
+
+8
+00:01:03,211 --> 00:01:09,511
+Ask anything — the agent answers from the graph, one ribbon per step.
+
+9
+00:01:09,811 --> 00:01:19,811
+Every step keeps its tools, its rows, and the exact Cypher that fetched them.
+
+10
+00:01:22,978 --> 00:01:32,278
+Click a step — its evidence lights the canvas, live.
+
+11
+00:01:36,684 --> 00:01:46,284
+History steps replay as a commit → file chain.
+
+12
+00:01:48,183 --> 00:01:53,783
+It remembers across sessions.
+
+13
+00:01:54,083 --> 00:01:59,683
+Investigations become episodes; findings become bi-temporal facts.
+
+14
+00:01:59,983 --> 00:02:08,583
+Superseded versions stay in memory — invalidated, never deleted.
+
+15
+00:02:10,384 --> 00:02:15,584
+FalkorDB is the context layer — not a bolt-on. One graph per repo.
+
+16
+00:02:16,588 --> 00:02:25,388
+Architecture, the three tracks, and honest limits — for judges and the curious.
+

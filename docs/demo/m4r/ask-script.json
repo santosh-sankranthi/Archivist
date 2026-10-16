@@ -1,10 +1,14 @@
 {
-  "_note": "Scripted scenarios for serve.py --llm-script (M4R step 3 capture/repro). The agent loop, tools and graph are real; only the model's next-move choices are canned. Run: python scripts/serve.py --http-port 8789 --llm-script docs/demo/m4r/ask-script.json. Numbers in the final texts were read from the live repo:flask graph when the script was written.",
+  "_note": "Scripted scenarios for serve.py --llm-script (M4R capture/repro + demo video). The agent loop, tools and graph are real; only the model's next-move choices are canned. Run: python scripts/serve.py --http-port 8789 --llm-script docs/demo/m4r/ask-script.json. Scenarios are claimed one per ask call, in order. Scenario 0 = url_for trace (captures + video ask scene); scenario 1 = memory recall (video memory scene; recall runs live over the real Fact/Episode rows); scenario 2 = wsgi_app trace. Numbers in the final texts were read from the live repo:flask graph when the script was written.",
   "scenarios": [
     [
       {"tool_calls": [{"name": "callers", "arguments": {"symbol": "url_for", "depth": 1}}]},
       {"tool_calls": [{"name": "file_history", "arguments": {"path": "src/flask/helpers.py", "limit": 5}}]},
       {"content": "25 callers, all within one hop: 12 in tests/test_basic.py, 4 in the tutorial's auth.py, and 9 more across blog.py and two other test modules. Nothing under src/flask calls url_for internally — its blast radius is the public contract itself, so the examples and the test suite break first.\n\nhelpers.py itself keeps moving (latest: \"drop support for Python 3.10\"), but url_for's call surface is small and stable."}
+    ],
+    [
+      {"tool_calls": [{"name": "recall", "arguments": {"query": "tag.py", "include_invalid": true}}]},
+      {"content": "Yes — an earlier session investigated src/flask/json/tag.py: David Lord has the most commits touching the file (11), and the routing note was later updated to go through the top two authors. The superseded version is still in memory: facts are bi-temporal — invalidated, never deleted — so you can ask what was true at any point."}
     ],
     [
       {"tool_calls": [{"name": "callees", "arguments": {"symbol": "Flask.wsgi_app", "file": "src/flask/app.py", "depth": 1}}]},

@@ -14,6 +14,10 @@ Notes:
   surfaces always read live.
 - `hero-motion.gif` / `hero-motion.webm` were recorded earlier the same day
   (`scripts/record_motion.py`); the motion system is unchanged since.
+- The demo video (`docs/demo/archivist-demo.mp4`, recorded 2026-10-16 ~21:14Z)
+  runs its ask scenes on this scripted server — scenario order in
+  `ask-script.json` is url_for trace → memory recall (`tag.py`) → wsgi_app;
+  recording/assembly is `scripts/record_demo.py` + `scripts/assemble_demo.py`.
 - Re-shoot recipe (waits on the canvas `data-settled` contract; fails on
   any JS error):
 
