@@ -1,4 +1,4 @@
-import { AskPanel } from "./AskPanel";
+import { AskRoom } from "./AskRoom";
 import styles from "./RightRail.module.css";
 
 interface Props {
@@ -27,7 +27,7 @@ export function RightRail({ open, onToggle }: Props) {
             <span className={styles.label}>Ask + Trace</span>
             <span className={styles.sub}>answers keep their path</span>
           </div>
-          <AskPanel />
+          <AskRoom variant="panel" />
         </div>
       ) : (
         <span className={styles.vert} aria-hidden="true">

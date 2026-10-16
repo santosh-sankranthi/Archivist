@@ -112,8 +112,18 @@ export interface AskAnswer {
   error: string | null;
   llm_calls: number;
   steps: AskStep[];
-  queries: Array<Record<string, unknown>>;
+  queries: AnswerQuery[];
   usage: Record<string, unknown>;
+}
+
+/** One executed Cypher statement from the agent trace (answer.queries). */
+export interface AnswerQuery {
+  round: number;
+  tool: string;
+  cypher: string;
+  params: Record<string, unknown>;
+  ms: number;
+  rows: number;
 }
 
 export interface AskResponse {
@@ -168,4 +178,13 @@ export interface PathResult extends GraphPayload {
   hops: number | null;
   from: { file: string; qualname: string };
   to: { file: string; qualname: string };
+}
+
+/** One step's subgraph from `POST /api/graph/induced` (Trace Ribbon replay). */
+export interface ReplayStepPayload extends GraphPayload {
+  id: string;
+}
+
+export interface InducedResponse {
+  steps: ReplayStepPayload[];
 }

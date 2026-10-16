@@ -1,0 +1,103 @@
+/* Trace Ribbon — chips, connectors, stagger entrance. */
+
+.ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+}
+
+/* The 1px luminous line between chips. */
+.link {
+  flex: none;
+  width: 16px;
+  height: 1px;
+  margin: 0 2px;
+  background: linear-gradient(90deg, var(--hairline-strong), var(--amber));
+  box-shadow: 0 0 6px rgba(233, 174, 88, 0.35);
+  opacity: 0.75;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 5px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--ink-850);
+  cursor: pointer;
+  animation: chipIn var(--t-mid) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+
+.chip:hover {
+  border-color: var(--amber);
+  transform: translateY(-1px);
+}
+
+.active {
+  border-color: var(--amber);
+  background: var(--amber-tint);
+}
+
+.active .tool {
+  color: var(--amber);
+}
+
+.active .fact {
+  color: var(--text-hi);
+}
+
+.tool {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-low);
+  transition: color var(--t-fast) var(--ease);
+}
+
+.fact {
+  font-size: 12px;
+  color: var(--text-mid);
+  transition: color var(--t-fast) var(--ease);
+}
+
+.bad .fact {
+  color: var(--rose);
+}
+
+.ms {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-low);
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    animation: none;
+  }
+}

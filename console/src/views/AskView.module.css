@@ -1,0 +1,7 @@
+/* Ask stage shell — full-height split handled inside AskRoom. */
+
+.wrap {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}

@@ -150,9 +150,11 @@ interface Props {
   spotlight?: Spotlight | null;
   selectedId?: number | null;
   onSelect?: (node: GraphNode | null) => void;
+  /** "wide": roomier forces for hub-shaped replay graphs (Ask canvas). */
+  spread?: "normal" | "wide";
 }
 
-export function GraphCanvas({ payload, spotlight, selectedId, onSelect }: Props) {
+export function GraphCanvas({ payload, spotlight, selectedId, onSelect, spread = "normal" }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<Core | null>(null);
   const nodesRef = useRef<Map<number, GraphNode>>(new Map());
@@ -218,25 +220,41 @@ export function GraphCanvas({ payload, spotlight, selectedId, onSelect }: Props)
     cy.add(toCyElements(payload));
     cy.resize();
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const layout = cy.layout({
-      name: "cose",
-      animate: !reduce,
-      animationDuration: 350,
-      animationEasing: "ease-out-cubic",
-      nodeRepulsion: 16000,
-      idealEdgeLength: 104,
-      gravity: 0.55,
-      componentSpacing: 72,
-      padding: 30,
-      numIter: 900,
-      nodeOverlap: 14,
-    } as unknown as LayoutOptions);
+    // Replay graphs are hub-shaped (a subject + its evidence): concentric is
+    // deterministic and collision-tidy; cose keeps its organic feel in the
+    // Explorer (default spread).
+    const layout =
+      spread === "wide"
+        ? cy.layout({
+            name: "concentric",
+            animate: !reduce,
+            animationDuration: 420,
+            animationEasing: "ease-out-cubic",
+            minNodeSpacing: 72,
+            equidistant: true,
+            avoidOverlap: true,
+            padding: 36,
+          } as unknown as LayoutOptions)
+        : cy.layout({
+            name: "cose",
+            animate: !reduce,
+            animationDuration: 350,
+            animationEasing: "ease-out-cubic",
+            nodeRepulsion: 16000,
+            idealEdgeLength: 104,
+            gravity: 0.55,
+            componentSpacing: 72,
+            padding: 30,
+            numIter: 900,
+            nodeOverlap: 14,
+          } as unknown as LayoutOptions);
+    const fitPadding = spread === "wide" ? 42 : 26;
     layout.one("layoutstop", () => {
-      cy.fit(undefined, 26);
+      cy.fit(undefined, fitPadding);
       container.dataset.settled = "1";
     });
     layout.run();
-  }, [payload]);
+  }, [payload, spread]);
 
   // Spotlight + selection classes.
   useEffect(() => {
