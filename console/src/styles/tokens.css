@@ -3,7 +3,7 @@
 
 :root {
   /* Surfaces */
-  --ink-950: #0c0e12;
+  --ink-950: #07080b; /* P2.3 base — deepened from #0c0e12 */
   --ink-900: #11141a;
   --ink-850: #151922;
   --ink-800: #1a1f29;
@@ -24,6 +24,9 @@
   /* Ember accent + deep base — landing/CTA/signal moments only (P2) */
   --ember-a: #f0a94e;
   --ember-b: #e06b3c;
+  --ember-grad: linear-gradient(180deg, #f0a94e, #e06b3c);
+  --glow-ember: 0 10px 34px -8px rgba(224, 107, 60, 0.42);
+  --glow-ember-strong: 0 16px 44px -8px rgba(224, 107, 60, 0.55);
   --bg-deep: #07080b;
   --label: #8a93a8; /* 6.5:1 on --bg-deep — verified in the taste spike */
 
@@ -47,6 +50,7 @@
   --sp-8: 32px;
   --sp-10: 40px;
   --sp-14: 56px;
+  --sp-24: 96px; /* section rhythm (§P2.3) */
 
   /* Motion */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
