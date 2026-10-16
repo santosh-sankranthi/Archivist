@@ -59,7 +59,9 @@ def wait_settled(page: Page) -> None:
         "() => document.querySelector('[data-settled]')?.dataset.settled === '1'",
         timeout=20000,
     )
-    page.wait_for_timeout(650)  # let spotlight/edge transitions finish
+    # Let the spotlight (300ms), draw sweep + pulse handoff, and replay
+    # fit/ripple (320ms glide + 680ms ring) land before the shot.
+    page.wait_for_timeout(1250)
 
 
 def wait_stage(page: Page, ms: float) -> None:
