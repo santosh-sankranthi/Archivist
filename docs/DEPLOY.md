@@ -18,6 +18,20 @@ This is the full product: ingest, agent loop (`scripts/ask.py`), crew
 (`scripts/crew.py`), web console. The console is read-only over the graph;
 the Ask panel needs an LLM key (any OpenAI-compatible endpoint) in `.env`.
 
+### Console v2 (`/console/`, M4R)
+
+The redesigned console builds from `console/` (Vite + React + TS strict):
+
+```bash
+cd console && npm ci && npm run build   # node 24+; ~1s build
+```
+
+`archivist.webapp` serves the build at `/console/` (SPA fallback for
+client routes; a tree without the build returns an honest 503). v1 stays
+at `/` until the parity swap, then moves to `/classic`. Static rebuilds
+need no service restart; `webapp.py` changes do (`systemctl --user
+restart archivist-console` on the demo host).
+
 ## 2. Public demo (current) — Cloudflare quick tunnel
 
 The demo host serves the console through a
