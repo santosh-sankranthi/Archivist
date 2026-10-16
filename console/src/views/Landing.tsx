@@ -2,6 +2,7 @@ import type { CSSProperties, MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { HeroCanvas } from "../components/HeroCanvas";
+import { Magnetic } from "../components/Magnetic";
 import { useApi } from "../lib/api";
 import { formatInt } from "../lib/format";
 import { href, navigate } from "../lib/router";
@@ -218,36 +219,40 @@ export function Landing() {
             </p>
 
             <div className={`${styles.ctaRow} ${styles.rv}`} style={d(560)}>
-              <a
-                className={`${styles.btn} ${styles.btnPrimary}`}
-                href={href("/overview")}
-                onClick={onLink(href("/overview"))}
-              >
-                <span>Enter the console</span>
-                <svg
-                  className={styles.btnArrow}
-                  width="15"
-                  height="10"
-                  viewBox="0 0 15 10"
-                  fill="none"
-                  aria-hidden="true"
+              <Magnetic strength={7}>
+                <a
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  href={href("/overview")}
+                  onClick={onLink(href("/overview"))}
                 >
-                  <path
-                    d="M0 5h12.4M9.4 1.4 13 5l-3.6 3.6"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </a>
-              <a
-                className={`${styles.btn} ${styles.btnGhost}`}
-                href={href("/ask", { q: TRACE_Q })}
-                onClick={onLink(href("/ask", { q: TRACE_Q }))}
-              >
-                See a trace
-              </a>
+                  <span>Enter the console</span>
+                  <svg
+                    className={styles.btnArrow}
+                    width="15"
+                    height="10"
+                    viewBox="0 0 15 10"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M0 5h12.4M9.4 1.4 13 5l-3.6 3.6"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </a>
+              </Magnetic>
+              <Magnetic strength={4}>
+                <a
+                  className={`${styles.btn} ${styles.btnGhost}`}
+                  href={href("/ask", { q: TRACE_Q })}
+                  onClick={onLink(href("/ask", { q: TRACE_Q }))}
+                >
+                  See a trace
+                </a>
+              </Magnetic>
             </div>
           </div>
 

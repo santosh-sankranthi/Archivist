@@ -134,3 +134,45 @@ export function toCyElements(payload: GraphPayload): ElementDefinition[] {
     }));
   return [...nodes, ...edges];
 }
+
+export interface Chain {
+  /** Node ids in walk order; `edges[i]` runs `nodes[i]` → `nodes[i + 1]`. */
+  nodes: number[];
+  edges: number[];
+}
+
+/** Order a lit edge set into one directed chain (the Explorer's traced
+ *  path) so the canvas can draw it in and pulse along it. The walk is
+ *  deliberately strict: split, merged, parallel, cyclic, or disconnected
+ *  sets return null, and callers skip the animation instead of inventing
+ *  a narrative the edges do not tell. */
+export function orderChain(edges: GraphEdge[], lit: Set<number>): Chain | null {
+  const picked = edges.filter((edge) => lit.has(edge.id));
+  if (picked.length === 0) return null;
+  const outgoing = new Map<number, Array<{ to: number; id: number }>>();
+  const indegree = new Map<number, number>();
+  const nodes = new Set<number>();
+  for (const edge of picked) {
+    nodes.add(edge.source);
+    nodes.add(edge.target);
+    const list = outgoing.get(edge.source) ?? [];
+    list.push({ to: edge.target, id: edge.id });
+    outgoing.set(edge.source, list);
+    indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+  }
+  const starts = [...nodes].filter((node) => (indegree.get(node) ?? 0) === 0);
+  if (starts.length !== 1) return null;
+  const chain: Chain = { nodes: [starts[0]], edges: [] };
+  const used = new Set<number>();
+  let cursor = starts[0];
+  for (;;) {
+    const next = (outgoing.get(cursor) ?? []).filter((hop) => !used.has(hop.id));
+    if (next.length === 0) break;
+    if (next.length > 1) return null;
+    used.add(next[0].id);
+    chain.edges.push(next[0].id);
+    cursor = next[0].to;
+    chain.nodes.push(cursor);
+  }
+  return used.size === picked.length ? chain : null;
+}

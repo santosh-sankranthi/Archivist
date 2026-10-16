@@ -15,7 +15,7 @@
   align-items: center;
 }
 
-/* The 1px luminous line between chips. */
+/* The 1px luminous line between chips — grows in with its chip. */
 .link {
   flex: none;
   width: 16px;
@@ -23,7 +23,20 @@
   margin: 0 2px;
   background: linear-gradient(90deg, var(--hairline-strong), var(--amber));
   box-shadow: 0 0 6px rgba(233, 174, 88, 0.35);
-  opacity: 0.75;
+  transform-origin: left center;
+  animation: linkGrow 260ms var(--ease-film) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+
+@keyframes linkGrow {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 0.75;
+  }
 }
 
 .chip {
@@ -97,7 +110,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chip {
+  .chip,
+  .link {
     animation: none;
+  }
+
+  .link {
+    opacity: 0.75;
   }
 }

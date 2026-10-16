@@ -372,6 +372,7 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
             <GraphCanvas
               payload={canvas}
               spread="wide"
+              ripple
               spotlight={active && activeTurn?.replay ? spotlightFor(activeReplay) : null}
             />
             <div className={styles.canvasMeta}>

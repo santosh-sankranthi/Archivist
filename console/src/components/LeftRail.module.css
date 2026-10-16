@@ -16,6 +16,7 @@
 }
 
 .navItem {
+  position: relative;
   display: block;
   padding: 7px 10px;
   border-radius: var(--r-1);
@@ -32,10 +33,22 @@
   background: var(--ink-850);
 }
 
-.navItemActive {
-  color: var(--text-hi);
+/* The active marker slides between items via a shared layout animation
+   (P2.2 nav indicator spring) instead of popping. */
+.navPill {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-1);
   background: var(--ink-850);
   box-shadow: inset 2px 0 0 var(--amber);
+}
+
+.navLabel {
+  position: relative;
+}
+
+.navItemActive {
+  color: var(--text-hi);
 }
 
 .block {

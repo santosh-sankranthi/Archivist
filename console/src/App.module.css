@@ -17,6 +17,12 @@
   overflow-x: hidden;
 }
 
+/* Route-transition wrapper (P2.2): views rise in; keeps full height so the
+   Explorer/Ask layouts that resolve `height: 100%` keep working. */
+.view {
+  height: 100%;
+}
+
 @media (max-width: 1160px) {
   .main {
     grid-template-columns: 216px minmax(0, 1fr) auto;

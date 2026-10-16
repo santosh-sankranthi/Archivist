@@ -14,6 +14,7 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { GraphCanvas } from "../components/GraphCanvas";
+import { Magnetic } from "../components/Magnetic";
 import { ApiError, getJSON, useApi } from "../lib/api";
 import { formatInt, relTime, shortSha } from "../lib/format";
 import {
@@ -250,6 +251,7 @@ export function Explorer({ query }: Props) {
           spotlight={spotlight}
           selectedId={selectedId}
           onSelect={handleSelect}
+          draw={Boolean(shownPath)}
         />
         <Legend />
         {drawerOpen && (selectedNode || target) ? (
@@ -368,14 +370,16 @@ export function Explorer({ query }: Props) {
               <option value={12}>12</option>
             </select>
           </label>
-          <button
-            type="button"
-            className={styles.btnAccent}
-            disabled={!fromRef || !toRef || pathBusy}
-            onClick={() => void tracePath()}
-          >
-            {pathBusy ? "tracing…" : "trace path"}
-          </button>
+          <Magnetic strength={5}>
+            <button
+              type="button"
+              className={styles.btnAccent}
+              disabled={!fromRef || !toRef || pathBusy}
+              onClick={() => void tracePath()}
+            >
+              {pathBusy ? "tracing…" : "trace path"}
+            </button>
+          </Magnetic>
           <button
             type="button"
             className={styles.btn}

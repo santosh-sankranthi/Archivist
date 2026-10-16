@@ -4,6 +4,7 @@ import {
   filterWeakEdges,
   labelFor,
   neighborhood,
+  orderChain,
   questionFor,
   serverIdOf,
   titleFor,
@@ -105,5 +106,46 @@ describe("toCyElements", () => {
   it("round-trips server ids", () => {
     expect(serverIdOf("n42")).toBe(42);
     expect(serverIdOf("e7")).toBe(7);
+  });
+});
+
+describe("orderChain", () => {
+  const edge = (id: number, source: number, target: number) => ({
+    id,
+    rel: "CALLS",
+    source,
+    target,
+    props: {},
+  });
+
+  it("orders a directed chain start to end", () => {
+    const edges = [edge(4, 3, 4), edge(2, 1, 2), edge(3, 2, 3), edge(99, 7, 8)];
+    const chain = orderChain(edges, new Set([2, 3, 4]));
+    expect(chain).toEqual({ nodes: [1, 2, 3, 4], edges: [2, 3, 4] });
+  });
+
+  it("walks reverse-direction chains in edge direction", () => {
+    const edges = [edge(1, 2, 1), edge(2, 3, 2)];
+    expect(orderChain(edges, new Set([1, 2]))).toEqual({
+      nodes: [3, 2, 1],
+      edges: [2, 1],
+    });
+  });
+
+  it("returns null for forks, cycles, and disconnected fragments", () => {
+    const fork = [edge(1, 1, 2), edge(2, 1, 3)];
+    expect(orderChain(fork, new Set([1, 2]))).toBeNull();
+    const cycle = [edge(1, 1, 2), edge(2, 2, 1)];
+    expect(orderChain(cycle, new Set([1, 2]))).toBeNull();
+    const twoChains = [edge(1, 1, 2), edge(2, 3, 4)];
+    expect(orderChain(twoChains, new Set([1, 2]))).toBeNull();
+  });
+
+  it("handles empty selections and single edges", () => {
+    expect(orderChain([edge(1, 1, 2)], new Set())).toBeNull();
+    expect(orderChain([edge(1, 1, 2)], new Set([1]))).toEqual({
+      nodes: [1, 2],
+      edges: [1],
+    });
   });
 });

@@ -1,9 +1,11 @@
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 import { LeftRail } from "./components/LeftRail";
 import { RightRail } from "./components/RightRail";
 import { TopBar } from "./components/TopBar";
 import { useApi } from "./lib/api";
+import { ROUTE_TRANSITION } from "./lib/motion";
 import { href, navigate, useLocation } from "./lib/router";
 import type { GraphState, Overview } from "./lib/types";
 import { AskView } from "./views/AskView";
@@ -12,11 +14,16 @@ import { Home } from "./views/Home";
 import { Landing } from "./views/Landing";
 import styles from "./App.module.css";
 
-/** Route split: `/console/` is the landing; everything else runs in the shell. */
+/** Route split: `/console/` is the landing; everything else runs in the shell.
+ *  `MotionConfig reducedMotion="user"` keeps every Framer Motion animation
+ *  on the reduced-motion parity path automatically (P2.2). */
 export function App() {
   const { path } = useLocation();
-  if (path === "/") return <Landing />;
-  return <Shell />;
+  return (
+    <MotionConfig reducedMotion="user">
+      {path === "/" ? <Landing /> : <Shell />}
+    </MotionConfig>
+  );
 }
 
 /** Shell: top bar, left rail, center canvas, collapsible Ask rail. */
@@ -69,7 +76,20 @@ function Shell() {
           overview={overview.data}
           searchRef={searchRef}
         />
-        <main className={styles.center}>{view}</main>
+        <main className={styles.center}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={path}
+              className={styles.view}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={ROUTE_TRANSITION}
+            >
+              {view}
+            </motion.div>
+          </AnimatePresence>
+        </main>
         <RightRail open={rightOpen} onToggle={() => setRightOpen((open) => !open)} />
       </div>
     </div>

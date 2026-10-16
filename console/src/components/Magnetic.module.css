@@ -1,0 +1,6 @@
+/* Magnetic wrapper: keeps the child's inline-flex sizing so it can live in
+   button rows without shifting layout. */
+
+.magnet {
+  display: inline-flex;
+}

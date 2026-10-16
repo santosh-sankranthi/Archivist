@@ -1,5 +1,55 @@
 /* Canvas surface + zoom controls (Ink & Signal). */
 
+/* Trace motion overlays (P2.2): the signal pulse dot and the replay ring.
+   Positioned in the stage's coordinate space (the canvas is inset: 0). */
+
+.pulse {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #f6c979 0%, #e9ae58 55%, rgba(233, 174, 88, 0) 72%);
+  box-shadow:
+    0 0 6px rgba(233, 174, 88, 0.8),
+    0 0 16px rgba(233, 174, 88, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  will-change: transform;
+}
+
+.ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 1.5px solid rgba(233, 174, 88, 0.7);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.ringPlay {
+  animation: ripple 680ms var(--ease-quint) forwards;
+}
+
+@keyframes ripple {
+  from {
+    transform: scale(0.5);
+    opacity: 0.65;
+  }
+  to {
+    transform: scale(3.4);
+    opacity: 0;
+  }
+}
+
 .canvas {
   position: absolute;
   inset: 0;

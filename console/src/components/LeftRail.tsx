@@ -1,9 +1,11 @@
+import { motion } from "motion/react";
 import type { RefObject } from "react";
 import { useState } from "react";
 
 import { useApi } from "../lib/api";
 import { formatInt } from "../lib/format";
 import { useDebounced } from "../lib/hooks";
+import { NAV_SPRING } from "../lib/motion";
 import { href, navigate } from "../lib/router";
 import type { FindResult, GraphState, Overview } from "../lib/types";
 import styles from "./LeftRail.module.css";
@@ -53,7 +55,15 @@ export function LeftRail({ path, state, overview, searchRef }: Props) {
                 navigate(href(item.path));
               }}
             >
-              {item.label}
+              {active ? (
+                <motion.span
+                  layoutId="rail-nav"
+                  className={styles.navPill}
+                  transition={NAV_SPRING}
+                  aria-hidden="true"
+                />
+              ) : null}
+              <span className={styles.navLabel}>{item.label}</span>
             </a>
           );
         })}
