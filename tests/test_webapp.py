@@ -192,6 +192,56 @@ def test_activity_lists_recent_commits(web_server: str):
     assert any(row["files"] >= 1 for row in commits)
 
 
+def test_path_traces_forward_chain(web_server: str):
+    status, data = get_json(
+        web_server
+        + "/api/graph/path?from_file=app.py&from_qualname=main"
+        + "&to_file=util.py&to_qualname=leaf"
+    )
+    assert status == 200
+    assert data["found"] is True
+    assert data["direction"] == "forward"
+    assert data["hops"] == 2
+    qualnames = {n["props"].get("qualname") for n in data["nodes"]}
+    assert {"main", "helper", "leaf"} <= qualnames
+    assert all(edge["rel"] == "CALLS" for edge in data["edges"])
+    assert data["from"] == {"file": "app.py", "qualname": "main"}
+
+
+def test_path_reports_reverse_direction(web_server: str):
+    status, data = get_json(
+        web_server
+        + "/api/graph/path?from_file=util.py&from_qualname=leaf"
+        + "&to_file=app.py&to_qualname=main"
+    )
+    assert status == 200
+    assert data["found"] is True and data["direction"] == "reverse"
+    assert data["hops"] == 2
+    assert any("to → from" in note for note in data["notes"])
+
+
+def test_path_absent_is_an_honest_answer(web_server: str):
+    status, data = get_json(
+        web_server
+        + "/api/graph/path?from_file=util.py&from_qualname=leaf"
+        + "&to_file=app.py&to_qualname=unused"
+    )
+    assert status == 200 and data["found"] is False
+    assert data["nodes"] == [] and data["edges"] == []
+    assert any("no call path" in note for note in data["notes"])
+    assert (
+        status_only(
+            web_server
+            + "/api/graph/path?from_file=nope.py&from_qualname=x"
+            + "&to_file=app.py&to_qualname=main"
+        )
+        == 404
+    )
+    assert (
+        status_only(web_server + "/api/graph/path?from_file=a&from_qualname=b") == 400
+    )
+
+
 def test_symbol_view_shows_callers(web_server: str):
     status, data = get_json(
         web_server + "/api/graph/symbol?file=util.py&qualname=helper&depth=1"

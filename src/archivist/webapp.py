@@ -21,6 +21,7 @@ Endpoints:
     GET  /api/graph/file       one file: symbols, imports, recent history
     GET  /api/graph/module     files importing one module
     GET  /api/graph/symbol     call neighbourhood (callers + callees, ≤3 hops)
+    GET  /api/graph/path       shortest directed call path between two symbols
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
 
@@ -283,6 +284,8 @@ class WebApp:
                     return self._json(200, self._graph_module(query))
                 if path == "/api/graph/symbol":
                     return self._json(200, self._graph_symbol(query))
+                if path == "/api/graph/path":
+                    return self._json(200, self._graph_path(query))
             elif method == "POST":
                 if path == "/api/cypher":
                     return self._json(200, self._cypher(body))
@@ -602,7 +605,7 @@ class WebApp:
         include_weak = (query.get("weak") or ["0"])[0] in ("1", "true", "yes")
         params = {"file": path, "qualname": qualname}
         root = self._ro(
-            "MATCH (s:Symbol {file: $file, qualname: $qualname}) " "RETURN s",
+            "MATCH (s:Symbol {file: $file, qualname: $qualname}) RETURN s",
             params,
         )
         if not root.result_set:
@@ -664,6 +667,101 @@ class WebApp:
         ).result_set
         callers, callees = rows[0] if rows else (0, 0)
         return {"callers": callers, "callees": callees}
+
+    def _graph_path(self, query: dict) -> dict:
+        """Shortest directed call path between two symbols — honest either way.
+
+        ``shortestPath`` is directed and only legal in WITH/RETURN
+        (M2-RESEARCH), so a reverse leg is attempted explicitly before
+        answering "no path", and the direction of a found path is stated,
+        not implied. Depth bounds are interpolated because FalkorDB rejects
+        parameterized var-length bounds — the value is clamped ints-only.
+        Weak edges are never hidden here: a path that only exists through
+        resolver guesses must say so, not disappear.
+        """
+        from_file = (query.get("from_file") or [""])[0]
+        from_qual = (query.get("from_qualname") or [""])[0]
+        to_file = (query.get("to_file") or [""])[0]
+        to_qual = (query.get("to_qualname") or [""])[0]
+        if not (from_file and from_qual and to_file and to_qual):
+            raise ApiError(
+                400,
+                "pass ?from_file=&from_qualname=&to_file=&to_qualname=",
+            )
+        try:
+            max_depth = max(1, min(12, int((query.get("max_depth") or ["8"])[0])))
+        except ValueError:
+            max_depth = 8
+
+        def require(file: str, qual: str) -> int:
+            rows = self._ro(
+                "MATCH (s:Symbol {file: $file, qualname: $qualname}) RETURN s",
+                {"file": file, "qualname": qual},
+            ).result_set
+            if not rows:
+                raise ApiError(404, f"no Symbol `{qual}` in {file}")
+            return rows[0][0].id
+
+        from_id = require(from_file, from_qual)
+        to_id = require(to_file, to_qual)
+        endpoints = {
+            "from": {"file": from_file, "qualname": from_qual},
+            "to": {"file": to_file, "qualname": to_qual},
+        }
+        if from_id == to_id:
+            return {
+                "found": True,
+                "direction": "same",
+                "hops": 0,
+                "nodes": [],
+                "edges": [],
+                "notes": ["same symbol on both ends — nothing to trace"],
+                **endpoints,
+            }
+
+        def shortest(src: str, src_qual: str, dst: str, dst_qual: str):
+            result = self._ro(
+                f"""
+                MATCH (a:Symbol {{file: $a_file, qualname: $a_qual}}),
+                      (b:Symbol {{file: $b_file, qualname: $b_qual}})
+                WITH shortestPath((a)-[:CALLS*1..{max_depth}]->(b)) AS p
+                RETURN p
+                """,
+                {"a_file": src, "a_qual": src_qual, "b_file": dst, "b_qual": dst_qual},
+            )
+            rows = result.result_set
+            return rows[0][0] if rows else None
+
+        direction = "forward"
+        path = shortest(from_file, from_qual, to_file, to_qual)
+        if path is None:
+            direction = "reverse"
+            path = shortest(to_file, to_qual, from_file, from_qual)
+        if path is None:
+            return {
+                "found": False,
+                "direction": None,
+                "hops": None,
+                "nodes": [],
+                "edges": [],
+                "notes": [
+                    f"no call path in either direction within {max_depth} hops",
+                ],
+                **endpoints,
+            }
+        nodes, edges, _ = collect([[path]], ["p"])
+        hops = len(edges)
+        weak = sum(1 for edge in edges.values() if edge["props"].get("weak") is True)
+        notes = []
+        if direction == "reverse":
+            notes.append("no path from → to; this path runs to → from")
+        if weak:
+            notes.append(f"{weak} edge(s) on the path are resolver guesses (weak)")
+        payload = finalize(nodes, edges, notes=notes)
+        payload.update(
+            {"found": True, "direction": direction, "hops": hops, **endpoints}
+        )
+        return payload
 
     # -- POST handlers -----------------------------------------------------
 
@@ -875,8 +973,7 @@ def make_server(
                         close_after = True  # unread body: don't reuse the socket
                         raise ApiError(
                             413,
-                            f"request body too large "
-                            f"({length} bytes; max {MAX_BODY})",
+                            f"request body too large ({length} bytes; max {MAX_BODY})",
                         )
                     raw = self.rfile.read(length) if length else b""
                     parsed = json.loads(raw.decode("utf-8") or "{}")

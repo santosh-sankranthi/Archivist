@@ -122,3 +122,50 @@ export interface AskResponse {
   episode_id: string | null;
   warnings: string[];
 }
+
+export interface GraphNode {
+  id: number;
+  type: string;
+  props: Record<string, unknown>;
+  focus?: boolean;
+}
+
+export interface GraphEdge {
+  id: number;
+  rel: string;
+  source: number;
+  target: number;
+  props: Record<string, unknown>;
+}
+
+export interface SymbolStats {
+  callers: number;
+  callees: number;
+}
+
+export interface FileHistoryRow {
+  sha: string;
+  ts: number;
+  summary: string;
+  added: number;
+  removed: number;
+}
+
+/** Payload of `/api/graph/{symbol,file,module}` — server projections verbatim. */
+export interface GraphPayload {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  notes: string[];
+  stats?: SymbolStats;
+  file?: Record<string, unknown>;
+  history?: FileHistoryRow[];
+}
+
+/** Payload of `/api/graph/path` — shortest directed call path, or an honest gap. */
+export interface PathResult extends GraphPayload {
+  found: boolean;
+  direction: "forward" | "reverse" | "same" | null;
+  hops: number | null;
+  from: { file: string; qualname: string };
+  to: { file: string; qualname: string };
+}

@@ -173,7 +173,7 @@ def main() -> None:
         if handoff:
             edge = "edge written" if handoff.get("linked") else "EDGE MISSING"
             print()
-            print(f"  handoff → {handoff['to']}: \"{handoff['note']}\" ({edge})")
+            print(f'  handoff → {handoff["to"]}: "{handoff["note"]}" ({edge})')
         print()
 
     print("== final answer (verifier-owned) ==")

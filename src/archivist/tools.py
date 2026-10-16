@@ -326,7 +326,7 @@ class RepoGraph:
             f"""
             MATCH p=(c:Symbol)-[:CALLS*1..{depth}]->
                     (t:Symbol {{file: $file, qualname: $qualname}})
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             RETURN c.file AS file, c.qualname AS caller, length(p) AS hops,
                    [n IN nodes(p) | {{file: n.file, qualname: n.qualname}}] AS chain,
                    [r IN relationships(p) | coalesce(r.count, 0)] AS counts,
@@ -391,7 +391,7 @@ class RepoGraph:
             MATCH p=(s:Symbol {{file: $file, qualname: $qualname}})
                     -[:CALLS*1..{depth}]->
                     (c:Symbol)
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             RETURN c.file AS file, c.qualname AS callee, length(p) AS hops,
                    [n IN nodes(p) | {{file: n.file, qualname: n.qualname}}] AS chain,
                    [r IN relationships(p) | coalesce(r.count, 0)] AS counts,
