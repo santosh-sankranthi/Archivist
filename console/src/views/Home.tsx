@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { useApi } from "../lib/api";
 import { clampText, formatInt, relTime, shortSha } from "../lib/format";
+import { STARTERS } from "../lib/questions";
 import { href, navigate } from "../lib/router";
 import type { Activity, GraphState, Overview } from "../lib/types";
 import styles from "./Home.module.css";
@@ -12,12 +13,6 @@ interface Props {
   stateError: string | null;
   overview: Overview | null;
 }
-
-const STARTERS = [
-  "What breaks if flask.helpers.url_for changes?",
-  "Who should review a change to src/flask/app.py?",
-  "Shortest call path from Flask.wsgi_app to Flask.finalize_request?",
-];
 
 /** Home: hero ask line, live stat strip, hubs, recent commits, starters. */
 export function Home({ state, stateError, overview }: Props) {

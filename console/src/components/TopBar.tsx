@@ -4,11 +4,11 @@ import styles from "./TopBar.module.css";
 
 interface Props {
   state: GraphState | null;
-  onFocusSearch: () => void;
+  onOpenPalette: () => void;
 }
 
 /** Top bar: wordmark lockup, repo chip with live counts, LLM status, ⌘K hint. */
-export function TopBar({ state, onFocusSearch }: Props) {
+export function TopBar({ state, onOpenPalette }: Props) {
   const isMac =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const counts = state
@@ -62,9 +62,9 @@ export function TopBar({ state, onFocusSearch }: Props) {
         <button
           type="button"
           className={styles.kbd}
-          onClick={onFocusSearch}
-          aria-label="Focus search (Command or Control K)"
-          title="Focus search"
+          onClick={onOpenPalette}
+          aria-label="Open the command palette (Command or Control K)"
+          title="Command palette — files, symbols, actions"
         >
           {isMac ? "⌘K" : "Ctrl K"}
         </button>

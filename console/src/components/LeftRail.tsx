@@ -1,5 +1,4 @@
 import { motion } from "motion/react";
-import type { RefObject } from "react";
 import { useState } from "react";
 
 import { useApi } from "../lib/api";
@@ -14,17 +13,18 @@ interface Props {
   path: string;
   state: GraphState | null;
   overview: Overview | null;
-  searchRef: RefObject<HTMLInputElement>;
+  onOpenPalette: () => void;
 }
 
 const NAV = [
   { path: "/overview", label: "Home" },
   { path: "/explorer", label: "Explorer" },
   { path: "/ask", label: "Ask" },
+  { path: "/about", label: "About" },
 ];
 
 /** Left rail: view nav, live search over the graph, hub quick-lists, memory footer. */
-export function LeftRail({ path, state, overview, searchRef }: Props) {
+export function LeftRail({ path, state, overview, onOpenPalette }: Props) {
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query.trim(), 250);
   const find = useApi<FindResult>(
@@ -70,11 +70,20 @@ export function LeftRail({ path, state, overview, searchRef }: Props) {
       </nav>
 
       <div className={styles.block}>
-        <label className={styles.blockLabel} htmlFor="rail-search">
-          Search
-        </label>
+        <div className={styles.blockHeader}>
+          <label className={styles.blockLabel} htmlFor="rail-search">
+            Search
+          </label>
+          <button
+            type="button"
+            className={styles.paletteKbd}
+            onClick={onOpenPalette}
+            title="Open the command palette — files, symbols, actions"
+          >
+            ⌘K
+          </button>
+        </div>
         <input
-          ref={searchRef}
           id="rail-search"
           className={styles.search}
           type="search"

@@ -13,10 +13,11 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
         --out docs/demo/m4r
 
 Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
-(04–05). Waits on the canvas `data-settled="1"` stamp, on scripted answer
-text, and on the landing's `window.__archivist.stagedAt` timeline token
-instead of fixed sleeps wherever possible; fails loudly on any JS error so
-a broken build never lands in docs/.
+(04–05), palette (06), about (07). Waits on the canvas `data-settled="1"`
+stamp, on scripted answer text, and on the landing's
+`window.__archivist.stagedAt` timeline token instead of fixed sleeps
+wherever possible; fails loudly on any JS error so a broken build never
+lands in docs/.
 """
 
 from __future__ import annotations
@@ -171,6 +172,38 @@ def run_ask(page: Page, base: str, out: Path) -> None:
     shot(page, out, "05-ask-step")
 
 
+def run_palette(page: Page, base: str, out: Path) -> None:
+    """06: ⌘K palette — live symbol results, plus a keyboard-drive check."""
+    page.goto(f"{base}/console/overview", wait_until="load")
+    page.get_by_text("url_for changes", exact=False).first.wait_for(timeout=20000)
+    page.keyboard.press("Control+k")
+    palette_input = page.get_by_role("combobox")
+    palette_input.wait_for(timeout=10000)
+    palette_input.fill("url_for")
+    page.get_by_text("flask.helpers.url_for", exact=False).first.wait_for(timeout=20000)
+    page.wait_for_timeout(700)  # spring settle after the results land
+    shot(page, out, "06-palette")
+
+    # Drive it: down to the second row, Enter — must land on the Explorer
+    # drill-down for that symbol, and the palette must close behind us.
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(400)
+    url = page.url
+    if "/explorer?" not in url or "qualname=" not in url:
+        raise RuntimeError(f"palette keyboard drive failed — url is {url!r}")
+    if page.get_by_role("dialog", name="Command palette").count():
+        raise RuntimeError("palette stayed open after Enter")
+
+
+def run_about(page: Page, base: str, out: Path) -> None:
+    """07: About/judges — headline + pipeline diagram."""
+    page.goto(f"{base}/console/about", wait_until="load")
+    page.get_by_text("FalkorDB, load-bearing").wait_for(timeout=20000)
+    page.wait_for_timeout(400)
+    shot(page, out, "07-about")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
@@ -181,7 +214,7 @@ def main() -> int:
     )
     ap.add_argument(
         "--scene",
-        choices=["all", "landing", "home", "explorer", "ask"],
+        choices=["all", "landing", "home", "explorer", "ask", "palette", "about"],
         default="all",
     )
     ap.add_argument("--out", default="docs/demo/m4r")
@@ -214,6 +247,10 @@ def main() -> int:
             run_explorer(page, base, out)
         if args.scene in ("all", "ask"):
             run_ask(page, ask_base, out)
+        if args.scene in ("all", "palette"):
+            run_palette(page, base, out)
+        if args.scene in ("all", "about"):
+            run_about(page, base, out)
 
         browser.close()
 

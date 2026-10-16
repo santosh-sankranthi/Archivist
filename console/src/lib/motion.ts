@@ -19,6 +19,15 @@ export const NAV_SPRING: Transition = {
   mass: 0.9,
 };
 
+/** ⌘K palette panel: the same spring family, a touch quicker off the line
+ *  so the panel feels snapped to the keystroke, not eased into place. */
+export const PALETTE_SPRING: Transition = {
+  type: "spring",
+  stiffness: 520,
+  damping: 42,
+  mass: 0.9,
+};
+
 /** True when the user prefers reduced motion (SSR-safe). */
 export function prefersReducedMotion(): boolean {
   return (

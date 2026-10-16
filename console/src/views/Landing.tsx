@@ -317,6 +317,10 @@ export function Landing() {
           <a href={href("/ask")} onClick={onLink(href("/ask"))}>
             ASK
           </a>
+          <span className={styles.sep} aria-hidden="true">·</span>
+          <a href={href("/about")} onClick={onLink(href("/about"))}>
+            ABOUT
+          </a>
         </nav>
       </footer>
     </div>

@@ -1,0 +1,273 @@
+/* About / judges page — editorial layout: serif display, hairline sections,
+   mono labels. Deliberately reads like a printed spec sheet, not a landing. */
+
+.about {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-6) var(--sp-14);
+}
+
+.head {
+  padding-bottom: var(--sp-8);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.eyebrow {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.title {
+  margin-top: var(--sp-4);
+  font: 400 40px/1.15 var(--font-display);
+  letter-spacing: -0.01em;
+  color: var(--text-hi);
+}
+
+.lead {
+  margin-top: var(--sp-4);
+  max-width: 62ch;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-mid);
+}
+
+.section {
+  padding-top: var(--sp-8);
+}
+
+.h2 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-hi);
+}
+
+.section > .h2 {
+  margin-bottom: var(--sp-4);
+}
+
+.body {
+  margin-top: var(--sp-4);
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-mid);
+}
+
+.body em {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--text-hi);
+}
+
+.jump {
+  display: flex;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+
+.jumpLink {
+  padding: 7px 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--text-hi);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.jumpLink:hover {
+  border-color: var(--amber);
+  color: var(--amber-hover);
+  filter: brightness(1.06);
+}
+
+/* -- diagram ------------------------------------------------------------ */
+
+.diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: var(--sp-5);
+}
+
+.dgBox {
+  fill: var(--ink-900);
+  stroke: var(--hairline-strong);
+  stroke-width: 1;
+}
+
+.dgCore {
+  fill: var(--ink-850);
+  stroke: var(--amber);
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+}
+
+.dgChip {
+  fill: var(--ink-800);
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+
+.dgLine {
+  stroke: var(--hairline-strong);
+  stroke-width: 1;
+}
+
+.dgDash {
+  stroke: var(--hairline-strong);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+
+.dgArrowHead {
+  fill: var(--hairline-strong);
+}
+
+.dgLabel {
+  font: 500 10px var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  fill: var(--text-low);
+}
+
+.dgSub {
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--text-low);
+}
+
+.dgValue {
+  font: 400 12.5px var(--font-ui);
+  fill: var(--text-hi);
+}
+
+.dgChipText {
+  font: 400 10px var(--font-mono);
+  fill: var(--text-mid);
+}
+
+.caption {
+  margin-top: var(--sp-4);
+  max-width: 68ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-low);
+}
+
+/* -- claims ------------------------------------------------------------- */
+
+.claims {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.claim {
+  max-width: 74ch;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-mid);
+}
+
+.claimLead {
+  color: var(--text-hi);
+  font-weight: 500;
+}
+
+.claim code,
+.limits code,
+.footNote code {
+  font: 400 12px var(--font-mono);
+  color: var(--text-mid);
+  background: var(--ink-800);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  padding: 1px 5px;
+}
+
+/* -- tracks ------------------------------------------------------------- */
+
+.tracks {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.track {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--ink-900);
+}
+
+.trackIndex {
+  grid-row: 1 / span 2;
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--amber);
+}
+
+.trackTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-hi);
+}
+
+.trackBody {
+  margin-top: 4px;
+  max-width: 70ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-mid);
+}
+
+/* -- limits ------------------------------------------------------------- */
+
+.limits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--sp-3);
+  max-width: 74ch;
+}
+
+.limits li {
+  position: relative;
+  padding-left: var(--sp-5);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-mid);
+}
+
+.limits li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  color: var(--text-low);
+  font-family: var(--font-mono);
+}
+
+.footNote {
+  margin-top: var(--sp-10);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--hairline);
+  font: 400 11px var(--font-mono);
+  color: var(--text-low);
+}
+
+@media (max-width: 900px) {
+  .title {
+    font-size: 32px;
+  }
+}

@@ -57,6 +57,31 @@
   gap: var(--sp-2);
 }
 
+.blockHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.paletteKbd {
+  padding: 1px 5px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-low);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.paletteKbd:hover {
+  border-color: var(--hairline-strong);
+  color: var(--text-mid);
+}
+
 .blockLabel {
   padding: 0 2px;
   font-family: var(--font-mono);

@@ -1,6 +1,7 @@
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
+import { CommandPalette } from "./components/CommandPalette";
 import { LeftRail } from "./components/LeftRail";
 import { RightRail } from "./components/RightRail";
 import { TopBar } from "./components/TopBar";
@@ -8,6 +9,7 @@ import { useApi } from "./lib/api";
 import { ROUTE_TRANSITION } from "./lib/motion";
 import { href, navigate, useLocation } from "./lib/router";
 import type { GraphState, Overview } from "./lib/types";
+import { About } from "./views/About";
 import { AskView } from "./views/AskView";
 import { Explorer } from "./views/Explorer";
 import { Home } from "./views/Home";
@@ -26,13 +28,13 @@ export function App() {
   );
 }
 
-/** Shell: top bar, left rail, center canvas, collapsible Ask rail. */
+/** Shell: top bar, left rail, center canvas, collapsible Ask rail, ⌘K palette. */
 function Shell() {
   const { path, query } = useLocation();
   const state = useApi<GraphState>("/api/state", 60_000);
   const overview = useApi<Overview>("/api/graph/overview");
-  const searchRef = useRef<HTMLInputElement>(null);
   const [rightOpen, setRightOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -42,7 +44,7 @@ function Shell() {
         !event.altKey
       ) {
         event.preventDefault();
-        searchRef.current?.focus();
+        setPaletteOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -62,19 +64,21 @@ function Shell() {
     view = <Explorer query={query} />;
   } else if (path === "/ask") {
     view = <AskView query={query} />;
+  } else if (path === "/about") {
+    view = <About />;
   } else {
     view = <OffMap />;
   }
 
   return (
     <div className={styles.app}>
-      <TopBar state={state.data} onFocusSearch={() => searchRef.current?.focus()} />
+      <TopBar state={state.data} onOpenPalette={() => setPaletteOpen(true)} />
       <div className={styles.main}>
         <LeftRail
           path={path}
           state={state.data}
           overview={overview.data}
-          searchRef={searchRef}
+          onOpenPalette={() => setPaletteOpen(true)}
         />
         <main className={styles.center}>
           <AnimatePresence mode="wait">
@@ -92,6 +96,11 @@ function Shell() {
         </main>
         <RightRail open={rightOpen} onToggle={() => setRightOpen((open) => !open)} />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        graph={state.data?.graph ?? null}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }
