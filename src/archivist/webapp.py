@@ -314,7 +314,9 @@ class WebApp:
     ) -> tuple[int, str, bytes]:
         try:
             if method == "GET":
-                if path == "/":
+                if path in ("/", "/classic", "/classic/"):
+                    # "/" is 302'd to /console/ at the HTTP layer; /classic/
+                    # keeps the original v1 shell reachable for reference.
                     return self._static("index.html")
                 if path.startswith("/static/"):
                     return self._static(path[len("/static/") :])
@@ -1139,6 +1141,22 @@ def make_server(
             close_after = False
             try:
                 split = urlsplit(self.path)
+                if method in ("GET", "HEAD") and split.path == "/":
+                    # The root leads to Console v2 — the product's face now.
+                    # (v1 stays archived at /classic/; its assets at /static/.)
+                    payload = (
+                        b'<!doctype html><meta http-equiv="refresh" '
+                        b'content="0; url=/console/">'
+                    )
+                    self.send_response(302)
+                    self.send_header("Location", "/console/")
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    if method != "HEAD":
+                        self.wfile.write(payload)
+                    return
                 body: dict = {}
                 if method == "POST":
                     length = int(self.headers.get("Content-Length") or 0)

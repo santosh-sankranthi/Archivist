@@ -69,12 +69,29 @@ def status_only(url: str) -> int:
         return exc.code
 
 
-def test_static_assets_served(web_server: str):
-    status, body, content_type = get(web_server + "/")
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface redirects as HTTPError so tests can assert on them directly."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def test_root_leads_to_console_v1_archived(web_server: str):
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(web_server + "/", timeout=15):
+            raise AssertionError("expected a redirect from /")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 302
+        assert exc.headers.get("Location") == "/console/"
+
+    status, body, content_type = get(web_server + "/classic/")
     assert status == 200
     assert "text/html" in content_type
     assert b"ARCHIVIST" in body
 
+
+def test_static_assets_served(web_server: str):
     for asset in (
         "/static/style.css",
         "/static/app.js",
@@ -408,7 +425,7 @@ def test_body_cap_refused_with_413(web_server: str, monkeypatch):
 
 
 def test_server_header_hides_interpreter(web_server: str):
-    with urllib.request.urlopen(web_server + "/", timeout=15) as res:
+    with urllib.request.urlopen(web_server + "/static/style.css", timeout=15) as res:
         assert res.headers.get("Server") == "Archivist/0.4"
 
 

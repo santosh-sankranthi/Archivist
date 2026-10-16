@@ -27,10 +27,11 @@ cd console && npm ci && npm run build   # node 24+; ~1s build
 ```
 
 `archivist.webapp` serves the build at `/console/` (SPA fallback for
-client routes; a tree without the build returns an honest 503). v1 stays
-at `/` until the parity swap, then moves to `/classic`. Static rebuilds
-need no service restart; `webapp.py` changes do (`systemctl --user
-restart archivist-console` on the demo host).
+client routes; a tree without the build returns an honest 503). The root
+`/` redirects (302) to `/console/` — v2 is the product's face; the v1
+shell stays reachable at `/classic/`. Static rebuilds need no service
+restart; `webapp.py` changes do (`systemctl --user restart
+archivist-console` on the demo host).
 
 ## 2. Public demo (current) — Cloudflare quick tunnel
 
