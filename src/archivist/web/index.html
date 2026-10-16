@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archivist — graph-native engineering intelligence</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#canvas">Skip to graph</a>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 5h18v3H3zM3 10.5h11v3H3zM3 16h18v3H3z"/>
+    </svg>
+    <div class="brand-text">
+      <strong>ARCHIVIST</strong>
+      <span>graph-native engineering intelligence</span>
+    </div>
+  </div>
+  <div class="meta">
+    <span class="chip" id="chip-graph" title="active graph">—</span>
+    <span class="chip" id="chip-counts" title="nodes · edges">—</span>
+    <span class="chip chip-llm" id="chip-llm" title="agent model status">—</span>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="rail" aria-label="Navigate the graph">
+    <section class="panel">
+      <h2>Find</h2>
+      <form id="search-form" role="search">
+        <input id="search-input" type="search" placeholder="symbol or file — e.g. url_for"
+               autocomplete="off" spellcheck="false" aria-label="Search symbols and files">
+      </form>
+      <ul id="search-results" class="list"></ul>
+    </section>
+    <section class="panel">
+      <h2>Most called</h2>
+      <ul id="hub-symbols" class="list"></ul>
+    </section>
+    <section class="panel">
+      <h2>Most imported</h2>
+      <ul id="hub-modules" class="list"></ul>
+    </section>
+    <section class="panel">
+      <h2>Memory</h2>
+      <div id="memory" class="memory">—</div>
+    </section>
+  </aside>
+
+  <section class="stage" aria-label="Graph canvas">
+    <div class="stage-bar">
+      <nav id="crumbs" class="crumbs" aria-label="Breadcrumb"></nav>
+      <div class="stage-actions">
+        <button id="btn-weak" class="btn" type="button" aria-pressed="false"
+                title="Include weak (unverified) resolver guesses">weak</button>
+        <button id="btn-fit" class="btn" type="button" title="Fit graph to view">fit</button>
+      </div>
+    </div>
+    <div id="canvas" class="canvas" role="img" aria-label="Graph view">
+      <div class="canvas-hint" id="canvas-hint">
+        <p><strong>Search a symbol</strong> or pick a hub on the left.</p>
+        <p class="dim">Every view is a live read-only query — the graph answers, nothing is staged.</p>
+      </div>
+    </div>
+    <div id="stage-note" class="stage-note" hidden></div>
+    <footer class="stage-foot">
+      <span class="legend"><i class="sw sw-solid"></i>resolved</span>
+      <span class="legend"><i class="sw sw-dashed"></i>weak guess</span>
+      <span class="legend"><i class="sw sw-focus"></i>focus</span>
+      <span id="stage-stats" class="stage-stats"></span>
+    </footer>
+  </section>
+
+  <aside class="rail rail-right" aria-label="Agent">
+    <section class="panel panel-ask">
+      <h2>Ask</h2>
+      <form id="ask-form">
+        <textarea id="ask-input" rows="3" placeholder="What breaks if `url_for` changes?"
+                  aria-label="Ask the agent about this repository"></textarea>
+        <div class="ask-controls">
+          <label class="check"><input type="checkbox" id="ask-remember" checked> remember this run</label>
+          <button class="btn primary" type="submit" id="ask-submit">Ask</button>
+        </div>
+      </form>
+      <div id="ask-status" class="ask-status" role="status" aria-live="polite"></div>
+      <div id="answer" class="answer"></div>
+    </section>
+    <section class="panel panel-trace">
+      <h2>Trace <span id="trace-totals" class="h2-aside"></span></h2>
+      <ol id="trace" class="trace"></ol>
+    </section>
+  </aside>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/static/vendor/cytoscape.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

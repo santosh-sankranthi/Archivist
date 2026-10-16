@@ -7,11 +7,12 @@ a codebase + its git history into a living graph, answers multi-hop questions
 with traceable reasoning paths, takes actions, remembers across sessions, and
 coordinates multiple agents over shared graph state.
 
-Status: **M3 — memory + multi-agent** (ingest pipeline repeatable & idempotent;
+Status: **M4 — web console** (ingest pipeline repeatable & idempotent;
 read-only graph tool suite with envelope+trace contract; tool-calling agent
-loop with auditable traces; M3a: episodes + bi-temporal facts — sessions
-recall each other, invalidate-don't-delete; M3b: planner → investigator →
-verifier crew with handoffs as graph state — see `docs/demo/`).
+loop with auditable traces; M3: episodes + bi-temporal facts, planner →
+investigator → verifier crew with handoffs as graph state; M4a: stdlib web
+console — chat + graph explorer + trace panel over the same read-only
+layer — see `docs/demo/`).
 
 ## Quickstart (dev)
 
@@ -83,5 +84,19 @@ python scripts/crew.py "what breaks if url_for changes, and who should review it
 Mechanics transcript: `docs/demo/m3b-handoffs.txt` (scripted model, live
 graph: plan → investigation → independent re-checks, handoff chain read
 back out of the graph).
+
+## Web console (M4)
+
+A stdlib-only console over the same read-only tools — chat + graph explorer +
+trace panel, no build step (Cytoscape.js is vendored, so it runs offline):
+
+```bash
+python scripts/serve.py            # -> http://127.0.0.1:8787  (graph repo:flask)
+```
+
+The explorer (search, module → file → symbol drill-down, caller/callee
+neighbourhoods with weak-guess filtering) works without an LLM key; the chat
+panel activates once `ARCHIVIST_LLM_*` is set and refuses honestly otherwise.
+JSON-layer transcript: `docs/demo/m4a-console.txt`.
 
 > Built during the Graph Hacks event window (Oct 15–18, 2026).

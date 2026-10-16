@@ -1,0 +1,46 @@
+M4a — Archivist web console: JSON layer over repo:flask (live graph)
+
+$ GET /api/state
+  -> HTTP 200 · repo=flask head=d086db856b
+  nodes: {'Author': 874, 'Commit': 5562, 'Episode': 5, 'Fact': 2, 'File': 643, 'Module': 145, 'Repo': 1, 'Symbol': 1580}
+  memory: 5 sessions, 2 facts · llm configured: False
+
+$ GET /api/graph/overview
+  -> HTTP 200 · hubs the explorer opens with
+     symbol Flask                  66 callers (src/flask/app.py)
+     symbol Blueprint              52 callers (src/flask/blueprints.py)
+     symbol url_for                40 callers (src/flask/helpers.py)
+     module flask                  44 importers, 78 sites
+     module __future__             27 importers, 27 sites
+     module pytest                 23 importers, 23 sites
+
+$ GET /api/graph/find?q=url_for
+  -> HTTP 200 · 2 symbol hit(s)
+     src/flask/app.py:1102  Flask.url_for
+     src/flask/helpers.py:200  url_for
+
+$ GET /api/graph/file?path=src/flask/helpers.py
+  -> HTTP 200 · 37 nodes, 42 edges · 679 loc
+     ca278a8694  +1115/-0  move to src directory
+     43483683b2  +21/-13  apply reorder-python-imports pre-commit config
+     53c893b646  +2/-4  fix string concats left over by black
+
+$ GET /api/graph/symbol?file=src/flask/helpers.py&qualname=url_for&depth=1
+  -> HTTP 200 · 41 nodes, 40 edges · focus=url_for
+  stats: 40 callers / 0 callees (direct, strong)
+  notes: (none)
+
+$ POST /api/cypher  (escape hatch: highest fan-in symbols)
+  -> HTTP 200 · 5 row(s)
+      66 callers  Flask  (src/flask/app.py)
+      52 callers  Blueprint  (src/flask/blueprints.py)
+      40 callers  url_for  (src/flask/helpers.py)
+      40 callers  render_template  (src/flask/templating.py)
+      19 callers  abort  (src/flask/helpers.py)
+
+$ POST /api/ask  (no key on this box — honest refusal, not a fake answer)
+  -> HTTP 503
+  no LLM configured — set ARCHIVIST_LLM_BASE_URL, ARCHIVIST_LLM_API_KEY and ARCHIVIST_LLM_MODEL (or OPENAI_* equivalents) in the environment or the repo-root .env, then res…
+
+note: every number above is read back from the live repo:flask graph;
+the console renders exactly these payloads — nothing is staged.
