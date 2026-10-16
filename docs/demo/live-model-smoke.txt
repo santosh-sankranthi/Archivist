@@ -1,0 +1,60 @@
+Live-model smoke — tool-calling loop over repo:flask (opencode-go/deepseek-v4-pro via https://opencode.ai/zen/go/v1; live model, live graph).
+Recorded 2026-10-16 ~20:04Z.
+
+Q who calls url_for?
+
+╭─────────────────────────────────── answer ───────────────────────────────────╮
+│ `url_for` in this repo has two definitions:                                  │
+│                                                                              │
+│ - **`url_for` (public helper, `src/flask/helpers.py:200`)** — 40 distinct    │
+│ direct callers, all in `examples/` and `tests/`; there are **no              │
+│ library-internal callers** in `src/flask/`. Highlights:                      │
+│   - `examples/tutorial/flaskr/auth.py`: `login`, `logout`, `register`,       │
+│ `login_required.wrapped_view`                                                │
+│   - `examples/tutorial/flaskr/blog.py`: `create`, `delete`, `update`         │
+│   - `tests/test_helpers.py`: `TestUrlFor.*` (7 tests)                        │
+│   - `tests/test_basic.py`, `tests/test_blueprints.py`,                       │
+│ `tests/test_appctx.py`, `tests/test_reqctx.py`, `tests/test_regression.py`,  │
+│ `tests/test_testing.py`, `tests/test_converters.py`                          │
+│                                                                              │
+│ - **`Flask.url_for` (method, `src/flask/app.py:1102`)** — 0 recorded direct  │
+│ callers on static CALLS edges.                                               │
+│                                                                              │
+│ The full 40-caller list is dominated by test fixtures; every edge is strong  │
+│ (non-weak).                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+                                   tool calls                                   
+#  tool          params                                         status  rows  ms
+1  find_symbols  {"query": "url_for"}                           ok         2   4
+2  callers       {"symbol": "url_for", "file":                  ok        25  13
+                 "src/flask/helpers.py"}                                        
+3  callers       {"symbol": "Flask.url_for", "file":            ok         0   3
+                 "src/flask/app.py"}                                            
+4  callers       {"file": "src/flask/helpers.py", "symbol":     ok        40  15
+                 "url_for", "…                                                  
+
+trace: 10 queries · 35 ms · 4 LLM calls · usage {'prompt_tokens': 18164, 
+'completion_tokens': 939, 'total_tokens': 19103, 'prompt_cache_hit_tokens': 
+9728, 'prompt_cache_miss_tokens': 8436}
+   MATCH (s:Symbol) WHERE (s.qualname = $q OR s.name = $q) RETURN s.file AS 
+file, s.qualname AS qu… (4 ms)
+   MATCH (s:Symbol) WHERE (s.qualname = $name OR s.name = $name) AND s.file = 
+$file RETURN s.file … (4 ms)
+   MATCH p=(c:Symbol)-[:CALLS*1..1]-> (t:Symbol {file: $file, qualname: 
+$qualname}) WHERE (c.file … (6 ms)
+   MATCH p=(c:Symbol)-[:CALLS*1..1]->(t:Symbol {file: $file, qualname: 
+$qualname}) WHERE (c.file <… (3 ms)
+   MATCH (s:Symbol) WHERE (s.qualname = $name OR s.name = $name) AND s.file = 
+$file RETURN s.file … (1 ms)
+   MATCH p=(c:Symbol)-[:CALLS*1..1]-> (t:Symbol {file: $file, qualname: 
+$qualname}) WHERE (c.file … (1 ms)
+   MATCH p=(c:Symbol)-[:CALLS*1..1]->(t:Symbol {file: $file, qualname: 
+$qualname}) WHERE (c.file <… (1 ms)
+   MATCH (s:Symbol) WHERE (s.qualname = $name OR s.name = $name) AND s.file = 
+$file RETURN s.file … (1 ms)
+   MATCH p=(c:Symbol)-[:CALLS*1..1]-> (t:Symbol {file: $file, qualname: 
+$qualname}) WHERE (c.file … (4 ms)
+   MATCH p=(c:Symbol)-[:CALLS*1..1]->(t:Symbol {file: $file, qualname: 
+$qualname}) WHERE (c.file <… (10 ms)
+
+memory: session agent-session:20261016T200454Z:c4bd7a62 recorded

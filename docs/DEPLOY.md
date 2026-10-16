@@ -81,5 +81,7 @@ a stable URL, see the upgrade paths below.
   connections get `503 + Retry-After` instead of unbounded threads), and a
   15 s socket timeout for stalled clients.
 - FalkorDB itself is never exposed: it stays bound to loopback.
-- The Ask endpoint returns an honest `503` until an LLM key is configured —
-  the public demo runs without one, so it cannot spend anyone's tokens.
+- The Ask endpoint returns an honest `503` until an LLM key is configured.
+  The public demo currently runs **with** a key (opencode-go) so visitors can
+  try Ask live — usage draws on the operator's token pool (48 in-flight cap);
+  removing the key returns the demo to keyless mode.
