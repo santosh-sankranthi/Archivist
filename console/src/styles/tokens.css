@@ -1,0 +1,63 @@
+/* "Ink & Signal" — locked design tokens (DESIGN-BRIEF §1). Single source;
+   components reference these variables and never hard-code values. */
+
+:root {
+  /* Surfaces */
+  --ink-950: #0c0e12;
+  --ink-900: #11141a;
+  --ink-850: #151922;
+  --ink-800: #1a1f29;
+  --hairline: #252b38;
+  --hairline-strong: #323a4c;
+
+  /* Text */
+  --text-hi: #eceef4;
+  --text-mid: #a8b0c0;
+  --text-low: #6e7687;
+
+  /* Signal amber — the one accent */
+  --amber: #e9ae58;
+  --amber-hover: #f2bd70;
+  --amber-press: #d99e42;
+  --amber-tint: rgba(233, 174, 88, 0.12);
+
+  /* Semantics only (memory/ok · error · history/commits) */
+  --teal: #5ec8b7;
+  --rose: #e06c75;
+  --blue: #7aa2f7;
+
+  /* Radii */
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 12px;
+
+  /* Spacing (4px base) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-14: 56px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-fast: 140ms;
+  --t-mid: 220ms;
+  --t-slow: 320ms;
+
+  /* Type */
+  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Layered dark-soft shadows — never a default-gray glow */
+  --shadow-1:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-2:
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 16px 48px rgba(0, 0, 0, 0.36);
+}

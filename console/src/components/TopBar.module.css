@@ -1,0 +1,114 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  height: 52px;
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(180deg, var(--ink-900), var(--ink-950));
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-right: auto;
+  min-width: 0;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--text-hi);
+}
+
+.tagline {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-low);
+  white-space: nowrap;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  background: var(--ink-900);
+  color: var(--text-mid);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-hi);
+}
+
+.dim {
+  color: var(--text-low);
+}
+
+.dotOn,
+.dotOff {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dotOn {
+  background: var(--teal);
+  box-shadow: 0 0 8px rgba(94, 200, 183, 0.45);
+}
+
+.dotOff {
+  background: var(--text-low);
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-mid);
+  border: 1px solid var(--hairline);
+  border-bottom-color: var(--hairline-strong);
+  border-radius: var(--r-1);
+  padding: 4px 8px;
+  background: var(--ink-850);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.kbd:hover {
+  color: var(--text-hi);
+  border-color: var(--hairline-strong);
+}
+
+/* Degrade gracefully toward 1024px: drop the counts chip first. */
+@media (max-width: 1160px) {
+  .right > .chip:nth-of-type(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .tagline {
+    display: none;
+  }
+}
