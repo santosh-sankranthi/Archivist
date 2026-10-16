@@ -31,9 +31,13 @@ _LOCAL_LIBS = Path.home() / ".local/opt/pw-deps/root/usr/lib/x86_64-linux-gnu"
 
 def browser_env() -> dict[str, str]:
     env = dict(os.environ)
-    libs = os.environ.get("ARCHIVIST_PW_LIBS") or (str(_LOCAL_LIBS) if _LOCAL_LIBS.is_dir() else "")
+    libs = os.environ.get("ARCHIVIST_PW_LIBS") or (
+        str(_LOCAL_LIBS) if _LOCAL_LIBS.is_dir() else ""
+    )
     if libs:
-        env["LD_LIBRARY_PATH"] = libs + (":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+        env["LD_LIBRARY_PATH"] = libs + (
+            ":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else ""
+        )
     return env
 
 
