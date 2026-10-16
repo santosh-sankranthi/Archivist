@@ -9,10 +9,18 @@ import type { GraphState, Overview } from "./lib/types";
 import { AskView } from "./views/AskView";
 import { Explorer } from "./views/Explorer";
 import { Home } from "./views/Home";
+import { Landing } from "./views/Landing";
 import styles from "./App.module.css";
 
-/** Shell: top bar, left rail, center canvas, collapsible Ask rail. */
+/** Route split: `/console/` is the landing; everything else runs in the shell. */
 export function App() {
+  const { path } = useLocation();
+  if (path === "/") return <Landing />;
+  return <Shell />;
+}
+
+/** Shell: top bar, left rail, center canvas, collapsible Ask rail. */
+function Shell() {
   const { path, query } = useLocation();
   const state = useApi<GraphState>("/api/state", 60_000);
   const overview = useApi<Overview>("/api/graph/overview");
@@ -35,7 +43,7 @@ export function App() {
   }, []);
 
   let view: React.ReactNode;
-  if (path === "/") {
+  if (path === "/overview") {
     view = (
       <Home
         state={state.data}
@@ -75,10 +83,10 @@ function OffMap() {
       <p className={styles.offMapBody}>No view lives at this address.</p>
       <a
         className={styles.offMapLink}
-        href={href("/")}
+        href={href("/overview")}
         onClick={(event) => {
           event.preventDefault();
-          navigate(href("/"));
+          navigate(href("/overview"));
         }}
       >
         Back to the archive

@@ -1,0 +1,762 @@
+/* Landing (/console/) — "Signal Field" hero, ported from the taste-01 spike
+   (docs/spikes/taste-01/) per DESIGN-BRIEF §P2.1. Scoped to this module;
+   the app shell keeps its own styles. */
+
+.root {
+  position: relative;
+  min-height: 100dvh;
+  background: var(--bg-deep);
+  color: var(--text-hi);
+  overflow-x: hidden;
+}
+
+/* ==========================================================================
+   AMBIENT LAYERS — scoped to the first viewport (canvas stays app-wide)
+   ========================================================================== */
+
+.heroWrap {
+  position: relative;
+  z-index: 5;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.fxEmber {
+  z-index: 1;
+  background:
+    radial-gradient(46% 40% at 71% 34%, rgba(240, 169, 78, 0.095), rgba(240, 169, 78, 0) 68%),
+    radial-gradient(40% 44% at 87% 68%, rgba(224, 107, 60, 0.06), rgba(224, 107, 60, 0) 70%);
+}
+
+.fxProtect {
+  z-index: 2;
+  background: linear-gradient(
+    95deg,
+    rgba(7, 8, 11, 0.94) 0%,
+    rgba(7, 8, 11, 0.88) 30%,
+    rgba(7, 8, 11, 0.6) 47%,
+    rgba(7, 8, 11, 0.16) 61%,
+    rgba(7, 8, 11, 0) 72%
+  );
+}
+
+.fxVignette {
+  z-index: 3;
+  background:
+    linear-gradient(180deg, rgba(5, 6, 9, 0.55) 0%, rgba(5, 6, 9, 0) 140px),
+    radial-gradient(135% 105% at 62% 38%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.34) 76%, rgba(0, 0, 0, 0.52) 100%);
+}
+
+.fxGrain {
+  z-index: 4;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='220'%20height='220'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='220'%20height='220'%20filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 220px 220px;
+}
+
+/* ==========================================================================
+   TOP BAR + LOCKUP
+   ========================================================================== */
+
+.topbar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 26px 56px 0;
+}
+
+.lockup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lockupMark {
+  font-family: var(--font-display);
+  font-size: 21px;
+  line-height: 1;
+  letter-spacing: 0.19em;
+  color: var(--text-hi);
+}
+
+.lockupKicker {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.245em;
+  color: var(--label);
+}
+
+.topbarMeta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  color: var(--label);
+  padding-top: 4px;
+}
+
+.metaVal {
+  color: var(--text-mid);
+}
+
+.metaSep {
+  width: 1px;
+  height: 12px;
+  background: rgba(236, 238, 244, 0.14);
+}
+
+/* ==========================================================================
+   HERO COLUMN
+   ========================================================================== */
+
+.hero {
+  position: relative;
+  z-index: 5;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 56px;
+}
+
+.heroInner {
+  margin-block: auto;
+  padding-top: 10px;
+  max-width: 800px;
+}
+
+.overline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  color: var(--label);
+}
+
+.nodeGlyph {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ember-a);
+  box-shadow: 0 0 8px rgba(240, 169, 78, 0.5);
+  flex: none;
+}
+
+.nodeGlyph::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid rgba(240, 169, 78, 0.28);
+}
+
+.display {
+  margin: 26px 0 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(3.5rem, 4.95vw, 4.5rem);
+  line-height: 1.06;
+  letter-spacing: -0.012em;
+  color: var(--text-hi);
+}
+
+.display em {
+  font-style: italic;
+}
+
+.w {
+  display: inline-block;
+}
+
+.root .w {
+  opacity: 0;
+}
+
+.root.on .w {
+  animation: wrise 480ms var(--ease-quint) var(--d, 0ms) both;
+}
+
+@keyframes wrise {
+  from {
+    opacity: 0;
+    transform: translateY(0.16em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* the drawn ember rule under "path." — the one ember hero moment */
+.wPath {
+  position: relative;
+}
+
+.u {
+  position: absolute;
+  left: 0.04em;
+  right: -0.05em;
+  bottom: -0.16em;
+  height: 0.13em;
+  pointer-events: none;
+}
+
+.uLine {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.uLine line {
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.root .uLine line {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+}
+
+.root.on .uLine line {
+  animation: drawline 480ms var(--ease-film) 640ms forwards;
+}
+
+@keyframes drawline {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.uNode {
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--ember-a);
+  box-shadow: 0 0 0 1px rgba(240, 169, 78, 0.3), 0 0 10px 2px rgba(240, 169, 78, 0.4);
+}
+
+.root .uNode {
+  opacity: 0;
+}
+
+.root.on .uNode {
+  animation: nodein 240ms var(--ease) 1000ms forwards;
+}
+
+@keyframes nodein {
+  to {
+    opacity: 1;
+  }
+}
+
+.uNode::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1px solid rgba(240, 169, 78, 0.5);
+  opacity: 0;
+}
+
+.root.on .uNode::after {
+  animation: ring 4.2s var(--ease) 1.6s infinite;
+}
+
+@keyframes ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.5;
+  }
+  55% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.sub {
+  margin: 24px 0 0;
+  max-width: 720px;
+  font-family: var(--font-ui);
+  font-size: 16.5px;
+  font-weight: 400;
+  line-height: 1.62;
+  letter-spacing: 0.002em;
+  color: var(--text-mid);
+}
+
+/* ==========================================================================
+   CTAs
+   ========================================================================== */
+
+.ctaRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 36px;
+}
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 50px;
+  padding: 0 22px;
+  border-radius: 8px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition:
+    transform 180ms var(--ease),
+    box-shadow 180ms var(--ease),
+    border-color 160ms var(--ease),
+    background-color 160ms var(--ease);
+  will-change: transform;
+  user-select: none;
+}
+
+.btn:active {
+  transform: translateY(0) scale(0.985);
+  transition-duration: 120ms;
+}
+
+.btnPrimary {
+  color: #170f06;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, var(--ember-a), var(--ember-b));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 235, 210, 0.32),
+    0 0 0 1px rgba(240, 169, 78, 0.16),
+    0 10px 34px -8px rgba(224, 107, 60, 0.42);
+}
+
+.btnPrimary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(255, 220, 170, 0.55), rgba(255, 190, 120, 0.18));
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
+}
+
+.btnPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 220, 0.4),
+    0 0 0 1px rgba(240, 169, 78, 0.28),
+    0 16px 44px -8px rgba(224, 107, 60, 0.55);
+}
+
+.btnPrimary:hover::after {
+  opacity: 0.55;
+}
+
+.btnPrimary > * {
+  position: relative;
+  z-index: 1;
+}
+
+.btnArrow {
+  transition: transform 180ms var(--ease);
+}
+
+.btnPrimary:hover .btnArrow {
+  transform: translateX(3px);
+}
+
+.btnGhost {
+  color: var(--text-hi);
+  border: 1px solid rgba(236, 238, 244, 0.16);
+  background: transparent;
+}
+
+.btnGhost:hover {
+  transform: translateY(-1px);
+  border-color: rgba(236, 238, 244, 0.34);
+  background: rgba(236, 238, 244, 0.035);
+}
+
+/* ==========================================================================
+   STAT RIG — instrument readout band
+   ========================================================================== */
+
+.rig {
+  margin-top: 44px;
+  padding-bottom: 6px;
+  width: 100%;
+}
+
+.rigRule {
+  height: 1px;
+  transform-origin: left;
+  background: linear-gradient(
+    90deg,
+    rgba(236, 238, 244, 0.16),
+    rgba(236, 238, 244, 0.06) 62%,
+    rgba(236, 238, 244, 0.11)
+  );
+}
+
+.root .rigRule {
+  transform: scaleX(0);
+}
+
+.root.on .rigRule {
+  animation: ruleDraw 480ms var(--ease-film) 600ms forwards;
+}
+
+@keyframes ruleDraw {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.rigHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 0 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--label);
+}
+
+.rigStats {
+  display: flex;
+  align-items: flex-start;
+}
+
+.stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 46px;
+  margin-right: 46px;
+}
+
+.stat:last-child {
+  padding-right: 0;
+  margin-right: 0;
+}
+
+.stat:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 23px;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: rgba(236, 238, 244, 0.09);
+}
+
+.statNum {
+  display: block;
+  min-width: 6.4ch;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 31px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text-hi);
+  font-variant-numeric: tabular-nums;
+}
+
+.statLab {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--label);
+}
+
+/* ==========================================================================
+   ENTRANCE — staged cascade (kicker → words → sub → CTA → stats), <=1.2s
+   ========================================================================== */
+
+.root .rv {
+  opacity: 0;
+}
+
+.root.on .rv {
+  animation: rise 420ms var(--ease-quint) var(--d, 0ms) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   BELOW THE FOLD — capabilities + footer
+   ========================================================================== */
+
+.below {
+  position: relative;
+  z-index: 6;
+  background-color: var(--bg-deep);
+  background-image: linear-gradient(180deg, rgba(7, 8, 11, 0), var(--bg-deep) 160px);
+}
+
+.belowInner {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 88px 56px 64px;
+}
+
+.belowKicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  color: var(--label);
+}
+
+.belowTitle {
+  margin-top: 14px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2rem, 2.6vw, 2.4rem);
+  line-height: 1.12;
+  color: var(--text-hi);
+}
+
+.cards {
+  margin-top: 40px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.card {
+  position: relative;
+  padding: 26px 24px 28px;
+  border: 1px solid rgba(236, 238, 244, 0.08);
+  border-radius: 12px;
+  background: rgba(236, 238, 244, 0.02);
+  transition:
+    transform 200ms var(--ease),
+    border-color 200ms var(--ease),
+    background-color 200ms var(--ease);
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(236, 238, 244, 0.18);
+  background: rgba(236, 238, 244, 0.03);
+}
+
+.cardIndex {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: var(--label);
+  transition: color 200ms var(--ease);
+}
+
+.card:hover .cardIndex {
+  color: var(--ember-a);
+}
+
+.cardTitle {
+  margin-top: 16px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 21px;
+  line-height: 1.25;
+  color: var(--text-hi);
+}
+
+.cardBody {
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: var(--text-mid);
+}
+
+.foot {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-top: 1px solid rgba(236, 238, 244, 0.07);
+  background: var(--bg-deep);
+  padding: 14px 56px 15px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--label);
+}
+
+.footNav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footNav a {
+  color: var(--label);
+  transition: color 160ms var(--ease);
+}
+
+.footNav a:hover {
+  color: var(--text-hi);
+}
+
+.sep {
+  color: rgba(138, 147, 168, 0.5);
+}
+
+/* ==========================================================================
+   REDUCED MOTION — content parity, static states
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .root .rv,
+  .root .w {
+    opacity: 1;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .root .rigRule {
+    transform: none;
+    animation: none !important;
+  }
+
+  .root .uLine line {
+    stroke-dashoffset: 0;
+    animation: none !important;
+  }
+
+  .root .uNode {
+    opacity: 1;
+    animation: none !important;
+  }
+
+  .root .uNode::after {
+    animation: none !important;
+  }
+
+  .btn,
+  .btnPrimary::after,
+  .btnArrow,
+  .card {
+    transition: none !important;
+  }
+}
+
+/* ==========================================================================
+   NARROW DEGRADES (target 1280+; graceful below)
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  .topbar {
+    padding: 22px 36px 0;
+  }
+
+  .hero {
+    padding: 0 36px;
+  }
+
+  .belowInner {
+    padding: 72px 36px 48px;
+  }
+
+  .foot {
+    padding: 13px 36px 14px;
+  }
+
+  .stat {
+    padding-right: 30px;
+    margin-right: 30px;
+  }
+
+  .stat:not(:last-child)::after {
+    right: 15px;
+  }
+}
+
+@media (max-width: 900px) {
+  .cards {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}
+
+@media (max-width: 720px) {
+  .metaOptional {
+    display: none;
+  }
+
+  .rigHead span:last-child {
+    display: none;
+  }
+
+  .rigStats {
+    flex-wrap: wrap;
+    gap: 22px 0;
+  }
+
+  .stat {
+    width: 50%;
+    padding-right: 16px;
+    margin-right: 0;
+  }
+
+  .stat:not(:last-child)::after {
+    display: none;
+  }
+
+  .ctaRow {
+    flex-wrap: wrap;
+  }
+
+  .foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}

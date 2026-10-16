@@ -21,6 +21,12 @@
   --amber-press: #d99e42;
   --amber-tint: rgba(233, 174, 88, 0.12);
 
+  /* Ember accent + deep base — landing/CTA/signal moments only (P2) */
+  --ember-a: #f0a94e;
+  --ember-b: #e06b3c;
+  --bg-deep: #07080b;
+  --label: #8a93a8; /* 6.5:1 on --bg-deep — verified in the taste spike */
+
   /* Semantics only (memory/ok · error · history/commits) */
   --teal: #5ec8b7;
   --rose: #e06c75;
@@ -44,6 +50,8 @@
 
   /* Motion */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-quint: cubic-bezier(0.23, 1, 0.32, 1); /* entrances */
+  --ease-film: cubic-bezier(0.22, 0.9, 0.24, 1); /* line drawing */
   --t-fast: 140ms;
   --t-mid: 220ms;
   --t-slow: 320ms;

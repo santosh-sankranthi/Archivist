@@ -16,7 +16,7 @@ interface Props {
 }
 
 const NAV = [
-  { path: "/", label: "Home" },
+  { path: "/overview", label: "Home" },
   { path: "/explorer", label: "Explorer" },
   { path: "/ask", label: "Ask" },
 ];
@@ -40,7 +40,7 @@ export function LeftRail({ path, state, overview, searchRef }: Props) {
       <nav className={styles.nav} aria-label="Views">
         {NAV.map((item) => {
           const active =
-            item.path === "/" ? path === "/" : path.startsWith(item.path);
+            item.path === path || path.startsWith(`${item.path}/`);
           return (
             <a
               key={item.path}

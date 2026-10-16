@@ -1,0 +1,28 @@
+/* Ambient signal field — fixed behind the landing. Fades in once the
+   entrance is staged; reduced motion keeps the static frame visible. */
+
+.graph {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.on {
+  animation: canvasIn 1200ms var(--ease) forwards;
+}
+
+@keyframes canvasIn {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph {
+    opacity: 1;
+    animation: none !important;
+  }
+}

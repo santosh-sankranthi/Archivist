@@ -403,7 +403,7 @@ export function Explorer({ query }: Props) {
 
 function Crumbs({ target }: { target: Target }) {
   const parts: ReactNode[] = [
-    <a key="root" className={styles.crumbLink} {...linkProps(href("/"))}>
+    <a key="root" className={styles.crumbLink} {...linkProps(href("/overview"))}>
       Archive
     </a>,
   ];
