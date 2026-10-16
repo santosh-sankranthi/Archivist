@@ -5,14 +5,18 @@ box is a 3.8 GB WSL instance, and an auditable product should not need a
 node_modules tree to show its work. Every JSON endpoint below is a
 projection over the same read-only queries the CLI tools run (``ro_query``
 is the only gate), so the console cannot drift from the graph the reviews
-verified: it shows what the graph holds — or nothing.
+verified: it shows what the graph holds — or nothing. (Console v2, built
+by Vite into ``console/dist``, is served at ``/console/`` — a box without
+the build gets an honest 503, not a broken page.)
 
 Endpoints:
 
     GET  /                     static console (index.html)
     GET  /static/<path>        static assets (css/js/vendor)
+    GET  /console/             Console v2 — the built Vite app (console/dist)
     GET  /api/state            graph + memory summary + LLM status
     GET  /api/graph/overview   hubs: most-called symbols, most-imported modules
+    GET  /api/graph/activity   recent commits (sha, ts, summary, author, files)
     GET  /api/graph/find       symbol + file discovery search
     GET  /api/graph/file       one file: symbols, imports, recent history
     GET  /api/graph/module     files importing one module
@@ -44,6 +48,9 @@ from .memory import Memory
 from .tools import RepoGraph
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+# Console v2 (M4R): the built Vite app. Not committed — a box without the
+# build serves an honest 503 from `_console`, never a broken page.
+CONSOLE_DIR = Path(__file__).resolve().parents[2] / "console" / "dist"
 
 # Display caps: a console page must stay renderable; every cap is *reported*
 # in ``notes`` rather than silently applied (same rule as the tools).
@@ -81,6 +88,7 @@ _CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".woff2": "font/woff2",
+    ".woff": "font/woff",
     ".png": "image/png",
     ".ico": "image/x-icon",
 }
@@ -259,10 +267,14 @@ class WebApp:
                     return self._static("index.html")
                 if path.startswith("/static/"):
                     return self._static(path[len("/static/") :])
+                if path == "/console" or path.startswith("/console/"):
+                    return self._console(path[len("/console") :])
                 if path == "/api/state":
                     return self._json(200, self._state())
                 if path == "/api/graph/overview":
                     return self._json(200, self._graph_overview())
+                if path == "/api/graph/activity":
+                    return self._json(200, self._graph_activity())
                 if path == "/api/graph/find":
                     return self._json(200, self._graph_find(query))
                 if path == "/api/graph/file":
@@ -308,6 +320,33 @@ class WebApp:
             return self._json(404, {"error": "not_found", "message": f"no asset {rel}"})
         content_type = _CONTENT_TYPES.get(target.suffix, "application/octet-stream")
         return 200, content_type, target.read_bytes()
+
+    def _console(self, rel: str) -> tuple[int, str, bytes]:
+        """Serve the built Console v2 at ``/console/`` (SPA fallback included).
+
+        Contract, in order: a path that escapes the dist directory is a 404
+        (whatever spelling); an unbuilt dist is an honest 503 (the box was
+        never asked to build it); a missing file with an extension is a 404
+        (a stale asset reference, not a route); anything else is a client
+        route and gets ``index.html``.
+        """
+        rel = rel.lstrip("/") or "index.html"
+        target = (CONSOLE_DIR / rel).resolve()
+        if not target.is_relative_to(CONSOLE_DIR):
+            raise ApiError(404, "no such console asset")
+        index = CONSOLE_DIR / "index.html"
+        if not index.is_file():
+            raise ApiError(
+                503,
+                "console v2 is not built on this box — run `npm run build` "
+                "in console/, then reload /console/",
+            )
+        if target.is_file():
+            content_type = _CONTENT_TYPES.get(target.suffix, "application/octet-stream")
+            return 200, content_type, target.read_bytes()
+        if Path(rel).suffix:
+            raise ApiError(404, f"no console asset {rel}")
+        return 200, _CONTENT_TYPES[".html"], index.read_bytes()
 
     # -- GET handlers ------------------------------------------------------
 
@@ -383,6 +422,30 @@ class WebApp:
                     for r in hub_modules.result_set
                 ],
             }
+        }
+
+    def _graph_activity(self) -> dict:
+        """The newest commits, straight from history (Home's activity list)."""
+        rows = self._ro("""
+            MATCH (c:Commit)
+            OPTIONAL MATCH (c)<-[:AUTHORED]-(a:Author)
+            OPTIONAL MATCH (c)-[:MODIFIED]->(f:File)
+            WITH c, a, count(DISTINCT f) AS files
+            RETURN c.sha AS sha, c.ts AS ts, c.summary AS summary,
+                   a.name AS author, files
+            ORDER BY c.ts DESC, c.seq ASC LIMIT 12
+            """).result_set
+        return {
+            "commits": [
+                {
+                    "sha": (row[0] or "")[:10],
+                    "ts": row[1],
+                    "summary": row[2],
+                    "author": row[3],
+                    "files": row[4],
+                }
+                for row in rows
+            ]
         }
 
     def _graph_find(self, query: dict) -> dict:
@@ -473,7 +536,7 @@ class WebApp:
             MATCH (c:Commit)-[m:MODIFIED]->(f:File {path: $path})
             RETURN c.sha AS sha, c.ts AS ts, c.summary AS summary,
                    m.added AS added, m.removed AS removed
-            ORDER BY c.seq DESC LIMIT 6
+            ORDER BY c.ts DESC, c.seq ASC LIMIT 6
             """,
             {"path": path},
         )

@@ -11,6 +11,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -20,7 +21,7 @@ import urllib.request
 import pytest
 
 from archivist.ingest import ingest
-from archivist.webapp import WebApp, make_server
+from archivist.webapp import ApiError, WebApp, make_server
 
 
 @pytest.fixture()
@@ -96,6 +97,60 @@ def test_static_refuses_traversal_and_missing():
     assert status == 404
 
 
+# -- Console v2 mount (/console/) --------------------------------------------
+
+
+def test_console_unbuilt_is_honest_503(web_server: str, tmp_path, monkeypatch):
+    """A box without the Vite build must say so, not serve a broken page."""
+    monkeypatch.setattr("archivist.webapp.CONSOLE_DIR", tmp_path / "missing")
+    assert status_only(web_server + "/console/") == 503
+    assert status_only(web_server + "/console") == 503
+    try:
+        get(web_server + "/console/")
+    except urllib.error.HTTPError as exc:
+        payload = json.loads(exc.read())
+        assert payload["error"] == "unavailable"
+        assert "not built" in payload["message"]
+
+
+def test_console_refuses_traversal(tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    monkeypatch.setattr("archivist.webapp.CONSOLE_DIR", tmp_path)
+    app = WebApp()
+    for rel in ("../pyproject.toml", "../../etc/passwd", "assets/../../outside.js"):
+        with pytest.raises(ApiError) as info:
+            app._console(rel)
+        assert info.value.status == 404, rel
+
+
+def test_console_serves_built_app(web_server: str):
+    """When console/dist exists: index, assets, SPA fallback, real 404s."""
+    from archivist.webapp import CONSOLE_DIR
+
+    if not (CONSOLE_DIR / "index.html").is_file():
+        pytest.skip("console/dist is not built on this box (npm run build)")
+
+    status, body, content_type = get(web_server + "/console/")
+    assert status == 200
+    assert "text/html" in content_type
+    assert b'id="root"' in body
+
+    # Both /console and /console/ serve the app shell.
+    status, body2, _ = get(web_server + "/console")
+    assert status == 200 and body2 == body
+
+    # A client route falls back to the shell; a missing asset does not.
+    status, body3, _ = get(web_server + "/console/explorer")
+    assert status == 200 and body3 == body
+    assert status_only(web_server + "/console/assets/nope.js") == 404
+
+    # The shell references at least one hashed asset that actually serves.
+    match = re.search(rb'src="(/console/assets/[^"]+)"', body)
+    assert match, "built index should reference a hashed bundle"
+    status, asset_body, _ = get(web_server + match.group(1).decode())
+    assert status == 200 and asset_body
+
+
 def test_state_reports_graph_and_counts(web_server: str):
     status, data = get_json(web_server + "/api/state")
     assert status == 200
@@ -117,6 +172,24 @@ def test_file_view_projects_symbols_and_history(web_server: str):
     assert any(edge["rel"] == "DEFINES" for edge in data["edges"])
     assert data["history"], "expected commits touching app.py"
     assert data["file"]["path"] == "app.py"
+
+    # History is newest-first (regression: it once listed oldest-first).
+    ts = [row["ts"] for row in data["history"]]
+    assert ts == sorted(ts, reverse=True), ts
+
+
+def test_activity_lists_recent_commits(web_server: str):
+    status, data = get_json(web_server + "/api/graph/activity")
+    assert status == 200
+    commits = data["commits"]
+    assert commits, "the chain repo has commits"
+    for row in commits:
+        assert set(row) == {"sha", "ts", "summary", "author", "files"}
+        assert len(row["sha"]) == 10
+        assert isinstance(row["files"], int)
+    ts = [row["ts"] for row in commits]
+    assert ts == sorted(ts, reverse=True), ts
+    assert any(row["files"] >= 1 for row in commits)
 
 
 def test_symbol_view_shows_callers(web_server: str):
