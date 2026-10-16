@@ -62,7 +62,7 @@ function initCy() {
           "text-halign": "center",
           "text-margin-y": 4,
           "text-wrap": "ellipsis",
-          "text-max-width": "130px",
+          "text-max-width": "112px",
           "text-background-color": "#0d0e10",
           "text-background-opacity": 0.72,
           "text-background-padding": "2px",
@@ -108,7 +108,7 @@ function labelFor(node) {
   const p = node.props || {};
   switch (node.type) {
     case "File": return p.path;
-    case "Symbol": return trunc(p.qualname, 40);
+    case "Symbol": return trunc(p.qualname, 30);
     case "Module": return p.name;
     case "Episode": return trunc(p.question || p.kind || p.id, 36);
     case "Fact": return trunc(p.text || p.id, 36);
@@ -157,12 +157,13 @@ function render(payload) {
     name: "cose",
     animate: !REDUCED,
     animationDuration: 350,
-    nodeRepulsion: 9000,
-    idealEdgeLength: 68,
-    gravity: 0.7,
-    componentSpacing: 54,
-    padding: 26,
+    nodeRepulsion: 13000,
+    idealEdgeLength: 92,
+    gravity: 0.55,
+    componentSpacing: 72,
+    padding: 30,
     numIter: 900,
+    nodeOverlap: 14,
   });
   layout.one("layoutstop", () => cy.fit(undefined, 26));
   layout.run();
