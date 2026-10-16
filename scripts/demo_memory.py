@@ -82,15 +82,21 @@ def main() -> None:
     mem = Memory()
     rg = RepoGraph()
 
-    # Reset only this demo's memory so re-runs converge cleanly: the two
-    # demo sessions and every fact about tag.py review routing. (The
-    # session-one fact carries a content-addressed id, so match on text.)
+    # Reset only this demo's own memory so re-runs converge cleanly: facts
+    # first (via PRODUCED provenance — the session-one fact carries a
+    # content-addressed id that is not known in advance), then the sessions.
+    # Nothing outside this demo's nodes is ever touched.
+    mem._graph.query(
+        "MATCH (e:Episode)-[:PRODUCED]->(f:Fact) WHERE e.id IN $eps DETACH DELETE f",
+        {"eps": [EP1, EP2]},
+    )
+    mem._graph.query(
+        "MATCH (f:Fact {id: $id}) DETACH DELETE f",
+        {"id": FACT2},
+    )
     mem._graph.query(
         "MATCH (n:Episode) WHERE n.id IN $ids DETACH DELETE n",
         {"ids": [EP1, EP2]},
-    )
-    mem._graph.query(
-        "MATCH (f:Fact) WHERE f.text CONTAINS 'review routing' DETACH DELETE f"
     )
 
     print("== setup ==")
@@ -186,8 +192,8 @@ def main() -> None:
             print(f"    [session] {row['id']}: {row['question']}")
 
     print(
-        "\n(demo nodes are prefixed demo:* and reset on every run; "
-        "facts are never deleted — only their validity window closes)"
+        "\n(this demo resets its own nodes on every run; the product never "
+        "deletes facts — a contradiction only closes their validity window)"
     )
 
 

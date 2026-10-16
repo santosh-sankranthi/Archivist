@@ -156,6 +156,7 @@ def test_supersede_tiles_windows_and_keeps_lineage(
         fact_id="f:new",
     )
     assert result["superseded"] == "f:old" and result["invalidated_old"] is True
+    assert result["old_reason"] is None and result["supersedes_edge"] is True
 
     history = {
         r["id"]: r for r in rg.recall("imported by", include_invalid=True)["results"]
@@ -171,6 +172,15 @@ def test_supersede_tiles_windows_and_keeps_lineage(
         " RETURN count(*) AS n"
     )["results"]
     assert lineage[0]["n"] == 1
+
+    replay = mem.supersede_fact(
+        "f:old",
+        text="helpers is imported by 12 files",
+        episode_id="s3",
+        fact_id="f:new",
+    )
+    assert replay["old_reason"] == "already closed"
+    assert replay["supersedes_edge"] is True  # lineage re-merged, still one edge
 
 
 def test_recall_lists_sessions_newest_first_and_matches_answers(
@@ -253,3 +263,60 @@ def test_agent_remember_tool_and_memory_gate(chain_repo, falkordb_or_skip, temp_
     answer3 = Agent(rg, llm3, memory=mem, episode_id="s4").ask("q")
     assert answer3.steps[0]["status"] == "error"
     assert "text is required" in answer3.steps[0]["error"]
+
+
+def test_supersede_missing_old_reports_orphan(chain_repo, falkordb_or_skip, temp_graph):
+    mem, _ = setup(chain_repo, falkordb_or_skip, temp_graph)
+    result = mem.supersede_fact("no-such-fact", text="child claim", fact_id="f:GHOST")
+    assert result["invalidated_old"] is False
+    assert result["old_reason"] == "not found"
+    assert result["supersedes_edge"] is False  # an orphan replacement is visible
+
+
+def test_recall_as_of_covers_sessions_with_event_time(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    mem, rg = setup(chain_repo, falkordb_or_skip, temp_graph)
+    mem.record_episode(kind="agent-session", id="sess:t1", ts=1000, question="first")
+    mem.record_episode(kind="agent-session", id="sess:t2", ts=2000, question="second")
+
+    assert rg.recall(as_of=999)["results"] == []
+    assert [r["id"] for r in rg.recall(as_of=1000)["results"]] == ["sess:t1"]
+    assert [r["id"] for r in rg.recall(as_of=2000)["results"]] == ["sess:t2", "sess:t1"]
+    empty = rg.recall(as_of=999)
+    assert any("nothing true as of 999" in n for n in empty["notes"])
+
+
+def test_recall_reports_source_caps(chain_repo, falkordb_or_skip, temp_graph):
+    mem, rg = setup(chain_repo, falkordb_or_skip, temp_graph)
+    mem.record_episode(kind="agent-session", id="sess:blob1", question="blob one")
+    mem.record_episode(kind="agent-session", id="sess:blob2", question="blob two")
+    for index in range(3):
+        mem.remember_fact(text=f"blob finding {index}", fact_id=f"f:blob{index}")
+
+    out = rg.recall("blob", limit=2)
+    assert out["count"] == 2  # the merged view is capped...
+    assert any("capped at limit=2" in n for n in out["notes"])  # ...and says so
+
+
+def test_remember_refs_guard_malformed_entries(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    mem, _ = setup(chain_repo, falkordb_or_skip, temp_graph)
+    result = mem.remember_fact(
+        text="guarded refs", refs=[1, {"kind": "file", "path": "util.py"}]
+    )
+    assert "file util.py" in result["refs_attached"]
+    assert any("unrecognized ref" in m for m in result["refs_missing"])
+    not_list = mem.remember_fact(text="guarded refs 2", refs=5)
+    assert any("must be a list" in m for m in not_list["refs_missing"])
+
+
+def test_episode_auto_id_respects_ts_zero(chain_repo, falkordb_or_skip, temp_graph):
+    mem, rg = setup(chain_repo, falkordb_or_skip, temp_graph)
+    eid = mem.record_episode(kind="probe", ts=0)
+    assert eid.startswith("probe:19700101T000000Z:")
+    row = rg.query("MATCH (e:Episode {id: $id}) RETURN e.ts AS ts", {"id": eid})[
+        "results"
+    ][0]
+    assert row["ts"] == 0

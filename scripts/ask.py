@@ -11,7 +11,9 @@ timings) unless --no-trace. --json prints the machine-readable Answer.
 
 Every run is persisted as an ``agent-session`` episode in the target graph
 (M3 memory), so the next session can recall it; pass --no-memory to skip
-recording (e.g. for throwaway one-offs).
+recording (e.g. for throwaway one-offs). Memory writes are best-effort: a
+graph hiccup warns on stderr and the answer still prints (the run is then
+simply not recallable) — the answer must never be lost to a memory write.
 
 LLM configuration comes from the environment; a repo-root .env is loaded:
     ARCHIVIST_LLM_BASE_URL   (or OPENAI_BASE_URL)
@@ -139,33 +141,42 @@ def main() -> int:
     episode_id = None
     started = time.perf_counter()
     if memory is not None:
-        head = (repo.query("MATCH (r:Repo) RETURN r.head AS head")["results"] or [{}])[
-            0
-        ].get("head")
-        episode_id = memory.record_episode(
-            kind="agent-session",
-            source="ask.py",
-            question=args.question,
-            graph=args.graph,
-            model=llm.model,
-            head=head,
-        )
+        # Memory writes are best-effort: a graph hiccup here must never eat
+        # the answer that the whole run exists to produce (REVIEW-M3).
+        try:
+            head = (
+                repo.query("MATCH (r:Repo) RETURN r.head AS head")["results"] or [{}]
+            )[0].get("head")
+            episode_id = memory.record_episode(
+                kind="agent-session",
+                source="ask.py",
+                question=args.question,
+                graph=args.graph,
+                model=llm.model,
+                head=head,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"warning: memory write failed ({exc})", file=sys.stderr)
 
     answer = Agent(
         repo, llm, max_steps=args.max_steps, memory=memory, episode_id=episode_id
     ).ask(args.question)
 
-    if memory is not None:
-        memory.record_episode(
-            id=episode_id,
-            answer=answer.text,
-            partial=answer.partial,
-            error=answer.error,
-            llm_calls=answer.llm_calls,
-            steps=len(answer.steps),
-            queries=len(answer.queries),
-            duration_ms=round((time.perf_counter() - started) * 1000),
-        )
+    if memory is not None and episode_id is not None:
+        try:
+            memory.record_episode(
+                id=episode_id,
+                answer=answer.text,
+                partial=answer.partial,
+                error=answer.error,
+                llm_calls=answer.llm_calls,
+                steps=len(answer.steps),
+                queries=len(answer.queries),
+                duration_ms=round((time.perf_counter() - started) * 1000),
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"warning: memory write failed ({exc})", file=sys.stderr)
+            episode_id = None  # the footer must not claim a clean record
 
     if args.json:
         print(json.dumps(answer.to_dict(), indent=2, default=str))

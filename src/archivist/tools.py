@@ -584,6 +584,7 @@ class RepoGraph:
             episode_params,
         )
 
+        facts_fetched, sessions_fetched = len(facts), len(episodes)
         notes: list[str] = []
         truncated = 0
         rows: list[dict] = []
@@ -608,12 +609,26 @@ class RepoGraph:
             notes.append("invalidated facts included (full history)")
         if as_of is not None:
             notes.append(f"as of {as_of} (event time)")
+        # A cap that hides rows must say so (silent filtering is a bug class).
+        if (
+            facts_fetched >= limit
+            or sessions_fetched >= limit
+            or facts_fetched + sessions_fetched > limit
+        ):
+            notes.append(
+                f"capped at limit={limit}: fetched {facts_fetched} fact(s) +"
+                f" {sessions_fetched} session(s); more may exist"
+            )
         if truncated:
             notes.append(f"{truncated} episode answers truncated for context")
         if rows:
             notes.insert(0, f"{len(facts)} facts, {len(episodes)} sessions")
         else:
-            notes.append("no memory matches (nothing recorded yet?)")
+            notes.append(
+                f"nothing true as of {as_of}"
+                if as_of is not None
+                else "no memory matches (nothing recorded yet?)"
+            )
         status = "ok" if rows else "not_found"
         return self._envelope("recall", status, params, rows, notes, since)
 

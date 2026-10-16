@@ -99,7 +99,9 @@ class Memory:
         (e.g. finishing an agent session) only updates the given props.
         """
         now = self.now()
-        episode_id = id or f"{kind}:{stamp_utc(ts or now)}:{uuid4().hex[:8]}"
+        episode_id = (
+            id or f"{kind}:{stamp_utc(ts if ts is not None else now)}:{uuid4().hex[:8]}"
+        )
         sets, params = _episode_sets(props)
         self._graph.query(
             f"""
@@ -194,15 +196,25 @@ class Memory:
             provenance = bool(rows)
         attached: list[str] = []
         missing: list[str] = []
-        for ref in (refs or [])[:_MAX_REFS]:
+        ref_list = refs if isinstance(refs, (list, tuple)) else None
+        if refs is not None and ref_list is None:
+            missing.append(f"refs must be a list, got {type(refs).__name__}")
+        for ref in (ref_list or [])[:_MAX_REFS]:
+            if not isinstance(
+                ref, dict
+            ):  # malformed entries report, never raise mid-write
+                missing.append(f"unrecognized ref {ref!r}")
+                continue
             resolved = self._attach_ref(fid, ref)
             if resolved is None:
                 missing.append(f"unrecognized ref {ref!r}")
             else:
                 key, found = resolved
                 (attached if found else missing).append(key)
-        if refs and len(refs) > _MAX_REFS:
-            missing.append(f"{len(refs) - _MAX_REFS} refs beyond the {_MAX_REFS} cap")
+        if ref_list and len(ref_list) > _MAX_REFS:
+            missing.append(
+                f"{len(ref_list) - _MAX_REFS} refs beyond the {_MAX_REFS} cap"
+            )
         return {
             "fact_id": fid,
             "provenance": provenance,
@@ -284,6 +296,10 @@ class Memory:
         The new fact's ``valid_at`` continues from the old fact's
         ``invalid_at`` so windows tile instead of overlap; a
         ``(:Fact)-[:SUPERSEDES]->(:Fact)`` edge keeps the lineage explicit.
+        The result surfaces ``old_reason`` ("not found" / "already closed" /
+        None) and ``supersedes_edge`` — an orphan replacement (old fact
+        missing) is reported, never silent (same rule as the crew's
+        ``linked``).
         """
         closed = self.invalidate_fact(old_id)
         rows = self._graph.query(
@@ -299,15 +315,18 @@ class Memory:
             valid_at=start,
             fact_id=fact_id,
         )
-        self._graph.query(
+        edge_rows = self._graph.query(
             """
             MATCH (n:Fact {id: $new}), (o:Fact {id: $old})
             MERGE (n)-[:SUPERSEDES]->(o)
+            RETURN n.id AS id
             """,
             {"new": result["fact_id"], "old": old_id},
-        )
+        ).result_set
         return {
             **result,
             "superseded": old_id,
             "invalidated_old": closed["invalidated"],
+            "old_reason": closed.get("reason"),  # None when the window was open
+            "supersedes_edge": bool(edge_rows),
         }
