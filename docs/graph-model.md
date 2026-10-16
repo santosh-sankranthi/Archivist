@@ -119,3 +119,9 @@ Known limits (honest):
 - Call sites: plain dotted-name callees attributed to the nearest enclosing
   def; resolution rules and coverage above.
 - Timestamps are UTC epoch; `run_id` is the ingest run stamp.
+- Lookup indexes are ensured after every ingest: `Symbol.name`, `File.path`,
+  `Commit.sha`, `Module.name`, `Episode.id`, `Fact.id` (+ a `FULLTEXT` on
+  `Symbol.name` pre-created for search upgrades). Honest scope: `File.path`
+  and `Module.name` serve read tools directly, but resolver-heavy anchors
+  (`CALLS` starts on `{file, qualname}`) still plan as label scans —
+  index-shape tuning is logged perf work, not hidden.

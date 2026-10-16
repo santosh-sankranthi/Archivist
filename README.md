@@ -7,12 +7,11 @@ a codebase + its git history into a living graph, answers multi-hop questions
 with traceable reasoning paths, takes actions, remembers across sessions, and
 coordinates multiple agents over shared graph state.
 
-Status: **M4 — web console** (ingest pipeline repeatable & idempotent;
+Status: **Console v2 live** (ingest pipeline repeatable & idempotent;
 read-only graph tool suite with envelope+trace contract; tool-calling agent
-loop with auditable traces; M3: episodes + bi-temporal facts, planner →
-investigator → verifier crew with handoffs as graph state; M4a: stdlib web
-console — chat + graph explorer + trace panel over the same read-only
-layer — see `docs/demo/`).
+loop with auditable traces; bi-temporal memory; planner → investigator →
+verifier crew with handoffs as graph state; Console v2 — landing page, graph
+explorer with path finder, ask room with trace replay — see `docs/demo/`).
 
 ## Quickstart (dev)
 
@@ -36,6 +35,77 @@ Options: `python scripts/ingest.py --help` (`--repo`, `--graph`, `--rebuild`,
 `--no-prune`, `--json`). v0 trade-offs and known limitations are documented in
 `docs/graph-model.md`.
 
+## Graph data model
+
+One graph per repo (e.g. `repo:flask`) — code, history, and agent memory all
+live as nodes and edges in FalkorDB, and every answer the product gives is a
+Cypher query over it.
+
+**Nodes:** `Repo` · `Commit` (sha, ts, message, `seq` = git-log position, for
+stable same-second ordering) · `Author` · `File` (path, lang, loc) ·
+`Symbol` (file + qualname, kind) · `Module` · `Episode` (agent session /
+ingest run / crew phase) · `Fact` (bi-temporal windows).
+
+**Edges:** `HEAD` · `PARENT` · `AUTHORED` · `MODIFIED {added, removed}` ·
+`DEFINES` · `IMPORTS {line}` · `CALLS {count, lines, weak}` ·
+`PRODUCED` (episode → fact) · `ABOUT` (fact → anchors) ·
+`SUPERSEDES` (fact lineage) · `HANDOFF {note}` (crew phases).
+
+Design rules the tools depend on:
+
+- **Idempotent writes** — every write is a `MERGE` on a stable identity
+  (path, sha, email, file+qualname, content-addressed fact id): re-ingest
+  and repeated `remember` calls converge instead of duplicating.
+- **Guesses are flagged, never hidden** — best-effort `CALLS` resolution
+  marks low-confidence edges `weak`; default reads filter those out *and
+  report how many were filtered*.
+- **Memory is append-only** — a contradicted fact closes its validity window
+  and links its replacement via `SUPERSEDES`; invalidate, don't delete.
+
+Full schema, resolver rings, and honest limits:
+[`docs/graph-model.md`](docs/graph-model.md).
+
+## Queries & the graph algorithms behind the product
+
+FalkorDB is the load-bearing context layer: each capability below *is* a
+read-only Cypher query — the agent loop and the console run the same tool
+suite (`GRAPH.RO_QUERY`, enforced in `src/archivist/tools.py`), and every
+result carries the exact Cypher it ran. The load-bearing set:
+
+- **Impact — call walks (variable-length traversal).** Bounded `[:CALLS*1..N]`
+  expansion from symbol anchors, weak edges excluded by default; reverse =
+  callers ("what breaks if this changes"), forward = callees.
+  (`callers` / `callees` — `src/archivist/tools.py`)
+- **Hop tracing — directed `shortestPath`.**
+  `shortestPath((a)-[:CALLS*1..N]->(b))` — directed only, so the reverse leg
+  is attempted explicitly before answering "no path", and a path that exists
+  only through weak guesses is labelled, not dropped.
+  (`GET /api/graph/path` — `src/archivist/webapp.py`)
+- **Structure — hubs (degree aggregation).** Most-called symbols:
+  `MATCH (c:Symbol)-[e:CALLS]->(s:Symbol) WHERE e.weak = false`, grouped with
+  `count(DISTINCT c)`, ordered and limited; the module variant aggregates
+  `IMPORTS`. (`GET /api/graph/overview` — `webapp.py`)
+- **History — joins over time.** File history: `(Commit)-[:MODIFIED]->(File)`
+  ordered `ts DESC, seq ASC` (churn counts from `git --numstat`); ownership
+  groups `(Author)-[:AUTHORED]->(Commit)` per author; archaeology is a
+  case-insensitive commit-message search. (`file_history` / `owners` /
+  `search_commits` — `src/archivist/tools.py`)
+- **Memory — bi-temporal interval filtering.** `recall` reads `Fact` windows
+  three ways: true-now (`invalid_at IS NULL`), full history, or as-of T
+  (`valid_at <= T AND (invalid_at IS NULL OR invalid_at > T)`); `PRODUCED`,
+  `SUPERSEDES`, and `HANDOFF` keep provenance and coordination one hop away.
+  (`recall` — `src/archivist/tools.py`; writer in `src/archivist/memory.py`)
+- **Replay — batch resolution + induced subgraph.** Ask steps send their
+  evidence refs; the server resolves them (`UNWIND $pairs AS pr MATCH …`) and
+  returns only the edges among the resolved nodes — exactly what the step
+  touched; unresolved refs and caps are reported.
+  (`POST /api/graph/induced` — `webapp.py`)
+
+Lookup indexes are ensured after each ingest (`INDEXES` in
+`src/archivist/graph.py`). Honest perf note: resolver-heavy anchors still
+plan as label scans on FalkorDB today — index-shape tuning is logged work,
+not hidden.
+
 ## Ask questions (agent loop, BYO LLM key)
 
 The agent answers questions by calling read-only graph tools and every answer
@@ -54,9 +124,9 @@ python scripts/ask.py "why is blueprints.py careful?" --json   # machine-readabl
 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` are accepted as
 fallbacks; keys never enter the repo. Transient endpoint failures (429/5xx,
 timeouts) are retried with backoff; anything that still fails is recorded on
-the answer's trace instead of crashing the run. A mechanics transcript
-generated without a key lives in `docs/demo/m2b-agent-loop.txt` (scripted
-calls, real queries).
+the answer's trace instead of crashing the run. Transcripts:
+`docs/demo/m2b-agent-loop.txt` (scripted model, real queries) and
+`docs/demo/live-model-smoke.txt` (live model, live graph).
 
 ## Memory (M3)
 
@@ -85,18 +155,31 @@ Mechanics transcript: `docs/demo/m3b-handoffs.txt` (scripted model, live
 graph: plan → investigation → independent re-checks, handoff chain read
 back out of the graph).
 
-## Web console (M4)
+## Web console (M4 → M4R)
 
-A stdlib-only console over the same read-only tools — chat + graph explorer +
-trace panel, no build step (Cytoscape.js is vendored, so it runs offline):
+Console v2 is the product's face — a landing page, graph explorer (search,
+module → file → symbol drill-down, caller/callee neighbourhoods with the
+weak-guess filter, directed path finder), an ask room where every answer's
+trace is replayed on the canvas as an induced subgraph, a ⌘K palette, and an
+About page. Built with Vite + React + TypeScript, served as static assets by
+the same stdlib server; console v1 stays archived at `/classic/`.
 
 ```bash
 python scripts/serve.py            # -> http://127.0.0.1:8787  (graph repo:flask)
 ```
 
-The explorer (search, module → file → symbol drill-down, caller/callee
-neighbourhoods with weak-guess filtering) works without an LLM key; the chat
-panel activates once `ARCHIVIST_LLM_*` is set and refuses honestly otherwise.
-JSON-layer transcript: `docs/demo/m4a-console.txt`.
+```bash
+cd console && npm ci && npm run build   # build Console v2 assets (Node ≥20.19)
+```
+
+The explorer works without an LLM key; the ask room activates once
+`ARCHIVIST_LLM_*` is set and refuses honestly otherwise. Screenshots and
+mechanics transcripts: `docs/demo/` (`docs/demo/m4r/` for v2; v1's JSON-layer
+transcript is `docs/demo/m4a-console.txt`).
+
+## AI-assist disclosure
+
+Built with AI coding assistants; design direction, review, and final
+verification by the submitter. (Disclosed per the event rules.)
 
 > Built during the Graph Hacks event window (Oct 15–18, 2026).
