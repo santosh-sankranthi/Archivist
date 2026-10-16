@@ -139,10 +139,21 @@ def main() -> int:
         render_phase(console, phase, answer, index, total)
         handoff = next((h for h in result.handoffs if h["from"] == phase["role"]), None)
         if handoff:
+            edge = ""
+            if "linked" in handoff:  # memory on: the edge outcome is part of the story
+                edge = (
+                    " [edge written]"
+                    if handoff["linked"]
+                    else " [bold yellow]EDGE MISSING[/bold yellow]"
+                )
             console.print(
-                f"[dim]  ↳ handoff to {handoff['to']}: {_short(handoff['note'], 120)}[/dim]"
+                f"[dim]  ↳ handoff to {handoff['to']}: {_short(handoff['note'], 120)}"
+                f"{edge}[/dim]"
             )
         console.print()
+
+    for note in result.notes:
+        console.print(f"[yellow]note: {note}[/yellow]")
 
     if result.error:
         console.print(

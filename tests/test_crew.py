@@ -262,3 +262,59 @@ def test_investigator_facts_carry_episode_provenance(
     )
     assert verifier_step["status"] == "error"
     assert "not available" in verifier_step["error"]
+
+
+class _LinkBroken(Memory):
+    """link_handoff always fails (returns False) — the loss must surface."""
+
+    def link_handoff(self, *args, **kwargs) -> bool:
+        return False
+
+
+class _BlipMemory(Memory):
+    """Every bookkeeping write fails — the crew must degrade, not crash."""
+
+    def record_episode(self, **kwargs):
+        raise RuntimeError("simulated graph blip")
+
+    def link_handoff(self, *args, **kwargs):
+        raise RuntimeError("simulated graph blip")
+
+
+def test_link_failure_surfaces_false_on_handoffs(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    ingest(
+        chain_repo, temp_graph, host=host, port=port, rebuild=True, log=lambda m: None
+    )
+    mem = _LinkBroken(graph=temp_graph, host=host, port=port)
+    rg = RepoGraph(graph=temp_graph, host=host, port=port)
+    result = Crew(
+        rg, ScriptedLLM(pipeline_script()), memory=mem, run_id="test:crew-5"
+    ).run("who calls helper?")
+
+    assert result.text == VERDICT and result.error is None
+    assert [h["linked"] for h in result.handoffs] == [False, False]
+    assert result.notes == []  # a False is a result, not an exception
+    count = rg.query("MATCH ()-[h:HANDOFF]->() RETURN count(*) AS n")["results"][0]["n"]
+    assert count == 0  # nothing written, and nothing pretends otherwise
+
+
+def test_bookkeeping_failure_degrades_without_crashing(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    ingest(
+        chain_repo, temp_graph, host=host, port=port, rebuild=True, log=lambda m: None
+    )
+    mem = _BlipMemory(graph=temp_graph, host=host, port=port)
+    rg = RepoGraph(graph=temp_graph, host=host, port=port)
+    result = Crew(
+        rg, ScriptedLLM(pipeline_script()), memory=mem, run_id="test:crew-6"
+    ).run("who calls helper?")
+
+    assert result.text == VERDICT and result.error is None  # the answer survives
+    assert any("not recorded" in note for note in result.notes)
+    assert [h["linked"] for h in result.handoffs] == [False, False]
+    assert result.to_dict()["notes"] == result.notes

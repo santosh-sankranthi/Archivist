@@ -133,6 +133,7 @@ class CrewResult:
     llm_calls: int = 0
     partial: bool = False
     error: str | None = None
+    notes: list[str] = field(default_factory=list)  # degraded bookkeeping, surfaced
     answers: list = field(default_factory=list, repr=False)
 
     def to_dict(self) -> dict:
@@ -145,6 +146,7 @@ class CrewResult:
             "llm_calls": self.llm_calls,
             "partial": self.partial,
             "error": self.error,
+            "notes": self.notes,
             "answers": [answer.to_dict() for answer in self.answers],
         }
 
@@ -156,6 +158,9 @@ class Crew:
     it the crew still runs and reports handoffs in the result (just not
     persisted). ``run_id`` groups the phases and makes episode ids
     deterministic (``{run_id}:{role}``) — re-running a demo converges.
+    Bookkeeping write failures (graph blips on episode/handoff writes) are
+    reported in ``notes`` and never raise: the answer survives the blip,
+    and the loss is visible rather than silent.
     """
 
     def __init__(
@@ -235,15 +240,8 @@ class Crew:
         episode_id: str | None = None
         if self.memory is not None:
             episode_id = f"{run_id}:{role}"
-            self.memory.record_episode(
-                kind="agent-session",
-                id=episode_id,
-                source=self.source,
-                role=role,
-                run=run_id,
-                question=phase_input,
-            )
-            self._link_incoming(role, result, run_id)
+            self._record_start(result, episode_id, role, run_id, phase_input)
+            self._link_incoming_safe(result, role, run_id)
         started = time.perf_counter()
         answer = Agent(
             self.repo,
@@ -256,16 +254,7 @@ class Crew:
         ).ask(phase_input)
         elapsed_ms = round((time.perf_counter() - started) * 1000)
         if self.memory is not None:
-            self.memory.record_episode(
-                id=episode_id,
-                answer=answer.text,
-                partial=answer.partial,
-                error=answer.error,
-                llm_calls=answer.llm_calls,
-                steps=len(answer.steps),
-                queries=len(answer.queries),
-                duration_ms=elapsed_ms,
-            )
+            self._record_finish(result, episode_id, role, answer, elapsed_ms)
 
         status = "error" if answer.error else ("partial" if answer.partial else "ok")
         result.phases.append(
@@ -289,6 +278,56 @@ class Crew:
             result.error = f"{role}: {answer.error}"
             return None
         return answer
+
+    # -- bookkeeping (degraded loudly, never fatal) --------------------------
+
+    def _record_start(self, result, episode_id, role, run_id, phase_input) -> None:
+        """Open the phase's episode; a write failure degrades, not crashes."""
+        try:
+            self.memory.record_episode(
+                kind="agent-session",
+                id=episode_id,
+                source=self.source,
+                role=role,
+                run=run_id,
+                question=phase_input,
+            )
+        except Exception as exc:  # noqa: BLE001 — a graph blip must not kill the run
+            self._note_degraded(result, f"{role}: episode start not recorded ({exc})")
+
+    def _record_finish(self, result, episode_id, role, answer, elapsed_ms) -> None:
+        """Close the phase's episode; a write failure degrades, not crashes."""
+        try:
+            self.memory.record_episode(
+                id=episode_id,
+                answer=answer.text,
+                partial=answer.partial,
+                error=answer.error,
+                llm_calls=answer.llm_calls,
+                steps=len(answer.steps),
+                queries=len(answer.queries),
+                duration_ms=elapsed_ms,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._note_degraded(result, f"{role}: episode finish not recorded ({exc})")
+
+    def _link_incoming_safe(self, result, role, run_id) -> None:
+        """Wire the pending handoff edge; failure is surfaced as linked=False."""
+        try:
+            self._link_incoming(role, result, run_id)
+        except Exception as exc:  # noqa: BLE001
+            if result.handoffs:
+                result.handoffs[-1]["linked"] = False
+            self._note_degraded(result, f"{role}: handoff edge not recorded ({exc})")
+
+    @staticmethod
+    def _note_degraded(result, message: str) -> None:
+        """Memory degradation is a *reported* state, never a traceback.
+
+        The investigation itself can still be complete — what failed is
+        persisting it; ``result.notes`` (and the JSON) carries that loudly.
+        """
+        result.notes.append(message)
 
     def _handoff(
         self,

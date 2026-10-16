@@ -103,9 +103,14 @@ def falkordb_or_skip():
 
 @pytest.fixture()
 def temp_graph(falkordb_or_skip):
-    """A scratch graph, wiped before and after each test."""
+    """A scratch graph, wiped before and after each test.
+
+    Per-process name: two concurrent suite runs (parallel review passes,
+    CI shards) must not clobber each other's state — a shared name caused
+    transient false reds during REVIEW-M3.
+    """
     host, port = falkordb_or_skip
-    name = "test:archivist"
+    name = f"test:archivist:{os.getpid()}"
     writer = GraphWriter(host=host, port=port, graph=name)
     writer.delete()
     yield name
