@@ -22,6 +22,7 @@ Endpoints:
     GET  /api/graph/module     files importing one module
     GET  /api/graph/symbol     call neighbourhood (callers + callees, ≤3 hops)
     GET  /api/graph/path       shortest directed call path between two symbols
+    POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
 
@@ -60,6 +61,12 @@ MAX_EDGES = 520
 MAX_SYMBOLS_PER_FILE = 140
 MAX_IMPORTS_PER_FILE = 80
 MAX_IMPORTERS_PER_MODULE = 150
+# /api/graph/induced (M4R step 3): per-step evidence ref caps, reported in
+# notes when trimmed — the same honesty rule as every other projection.
+MAX_INDUCED_STEPS = 12
+MAX_STEP_SYMBOLS = 120
+MAX_STEP_FILES = 80
+MAX_STEP_MODULES = 40
 MAX_BODY = 1_000_000  # POST bodies beyond this are refused (413) before parsing
 # Public-exposure guard (M5): in-flight requests are capped so a tunnel in
 # front of the console cannot amplify a flood of connections into a flood of
@@ -219,15 +226,58 @@ def finalize(
     }
 
 
+def _induced_refs(
+    value, keys: tuple[str, ...], cap: int, label: str, notes: list[str]
+) -> list[dict]:
+    """Validate, dedupe and cap one ref list for ``/api/graph/induced``.
+
+    Bad rows are skipped (counted in ``notes``); trimming is reported with
+    the exact number not shown, same rule as every display cap on this box.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ApiError(400, f"{label} refs must be a list")
+    kept: list[dict] = []
+    seen: set[tuple] = set()
+    skipped = 0
+    for row in value:
+        if not isinstance(row, dict) or not all(
+            isinstance(row.get(k), str) and row.get(k).strip() for k in keys
+        ):
+            skipped += 1
+            continue
+        key = tuple(row[k] for k in keys)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append({k: row[k] for k in keys})
+    if skipped:
+        notes.append(f"{skipped} malformed {label} ref(s) skipped")
+    if len(kept) > cap:
+        notes.append(f"{label} refs capped at {cap} ({len(kept) - cap} not shown)")
+        kept = kept[:cap]
+    return kept
+
+
 class WebApp:
     """Request routing over one repo graph. One instance per server."""
 
     def __init__(
-        self, graph: str = "repo:flask", host: str = "127.0.0.1", port: int = 6379
+        self,
+        graph: str = "repo:flask",
+        host: str = "127.0.0.1",
+        port: int = 6379,
+        llm_factory=None,
     ):
         self.graph = graph
         self.host = host
         self.port = port
+        # Injection seam for tests and the scripted capture server
+        # (``serve.py --llm-script``); production callers get the real
+        # BYO-key client. The agent loop, tools and graph stay real either
+        # way — only the model's next-move choices are canned.
+        self._llm_factory = llm_factory or ChatLLM
 
     # -- plumbing ----------------------------------------------------------
 
@@ -287,6 +337,8 @@ class WebApp:
                 if path == "/api/graph/path":
                     return self._json(200, self._graph_path(query))
             elif method == "POST":
+                if path == "/api/graph/induced":
+                    return self._json(200, self._graph_induced(body))
                 if path == "/api/cypher":
                     return self._json(200, self._cypher(body))
                 if path == "/api/ask":
@@ -366,7 +418,7 @@ class WebApp:
                    coalesce(e.ts, e.created_at) AS ts, e.question AS question
             ORDER BY ts DESC, e.id DESC LIMIT 1
             """).result_set
-        llm = ChatLLM()
+        llm = self._llm_factory()
         return {
             "graph": self.graph,
             "repo": overview["repo"],
@@ -763,6 +815,129 @@ class WebApp:
         )
         return payload
 
+    def _graph_induced(self, body: dict) -> dict:
+        """Induced subgraph of an Ask step's evidence (M4R "Trace Ribbon").
+
+        The client sends plain refs per step — the same ``(file, qualname)`` /
+        path / module values its tool result points at. We resolve them to
+        graph nodes and add the typed edges *among* those nodes. Nothing is
+        guessed: unresolved refs and every cap land in ``notes``, and edges
+        keep their ``weak`` flag for the UI to label.
+        """
+        steps = body.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise ApiError(
+                400,
+                'pass {"steps": [{"id": "...", "symbols": [{"file", "qualname"}],'
+                ' "files": [...], "modules": [...]}]}',
+            )
+        if len(steps) > MAX_INDUCED_STEPS:
+            raise ApiError(400, f"too many steps ({MAX_INDUCED_STEPS} max)")
+
+        out: list[dict] = []
+        for item in steps:
+            if not isinstance(item, dict):
+                raise ApiError(400, "each step must be an object")
+            sid = item.get("id")
+            if not isinstance(sid, str) or not sid.strip():
+                raise ApiError(400, "each step needs a non-empty string id")
+            notes: list[str] = []
+            pairs = _induced_refs(
+                item.get("symbols"),
+                ("file", "qualname"),
+                MAX_STEP_SYMBOLS,
+                "symbol",
+                notes,
+            )
+            paths = _induced_refs(
+                item.get("files"), ("path",), MAX_STEP_FILES, "file", notes
+            )
+            names = _induced_refs(
+                item.get("modules"), ("name",), MAX_STEP_MODULES, "module", notes
+            )
+            nodes, edges = self._induced_elements(pairs, paths, names, notes)
+            payload = finalize(nodes, edges, notes=notes)
+            payload["id"] = sid
+            out.append(payload)
+        return {"steps": out}
+
+    def _induced_elements(
+        self, pairs: list[dict], paths: list[dict], names: list[dict], notes: list[str]
+    ) -> tuple[dict[int, dict], dict[int, dict]]:
+        """Resolve refs to nodes; absorb typed edges among them."""
+        nodes: dict[int, dict] = {}
+        edges: dict[int, dict] = {}
+        expected = 0
+
+        def absorb(result) -> None:
+            columns = [header[1] for header in result.header]
+            found, found_edges, _ = collect(result.result_set, columns)
+            nodes.update(found)
+            edges.update(found_edges)
+
+        if pairs:
+            expected += len(pairs)
+            absorb(
+                self._ro(
+                    "UNWIND $pairs AS pr "
+                    "MATCH (s:Symbol {file: pr.file, qualname: pr.qualname}) RETURN s",
+                    {"pairs": pairs},
+                )
+            )
+        if paths:
+            expected += len(paths)
+            absorb(
+                self._ro(
+                    "UNWIND $paths AS p MATCH (f:File {path: p}) RETURN f",
+                    {"paths": [p["path"] for p in paths]},
+                )
+            )
+        if names:
+            expected += len(names)
+            absorb(
+                self._ro(
+                    "UNWIND $names AS n MATCH (m:Module {name: n}) RETURN m",
+                    {"names": [n["name"] for n in names]},
+                )
+            )
+
+        symbol_ids = [nid for nid, node in nodes.items() if node["type"] == "Symbol"]
+        file_ids = [nid for nid, node in nodes.items() if node["type"] == "File"]
+        module_ids = [nid for nid, node in nodes.items() if node["type"] == "Module"]
+        if len(symbol_ids) >= 2:
+            absorb(
+                self._ro(
+                    "MATCH (a:Symbol)-[r:CALLS]->(b:Symbol) "
+                    "WHERE id(a) IN $ids AND id(b) IN $ids RETURN a, r, b",
+                    {"ids": symbol_ids},
+                )
+            )
+        if file_ids and module_ids:
+            absorb(
+                self._ro(
+                    "MATCH (f:File)-[r:IMPORTS]->(m:Module) "
+                    "WHERE id(f) IN $fids AND id(m) IN $mids RETURN f, r, m",
+                    {"fids": file_ids, "mids": module_ids},
+                )
+            )
+        if file_ids and symbol_ids:
+            absorb(
+                self._ro(
+                    "MATCH (f:File)-[r:DEFINES]->(s:Symbol) "
+                    "WHERE id(f) IN $fids AND id(s) IN $sids RETURN f, r, s",
+                    {"fids": file_ids, "sids": symbol_ids},
+                )
+            )
+
+        if expected and len(nodes) < expected:
+            notes.append(
+                f"{expected - len(nodes)} evidence ref(s) did not resolve in this graph"
+            )
+        weak = sum(1 for edge in edges.values() if edge["props"].get("weak") is True)
+        if weak:
+            notes.append(f"{weak} weak edge(s) shown — resolver guesses (dashed)")
+        return nodes, edges
+
     # -- POST handlers -----------------------------------------------------
 
     def _cypher(self, body: dict) -> dict:
@@ -801,7 +976,7 @@ class WebApp:
         except (TypeError, ValueError):
             max_steps = 8
         remember = body.get("remember", True) is not False
-        llm = ChatLLM()
+        llm = self._llm_factory()
         if not llm.is_configured():
             raise ApiError(503, LLM_HINT)
         repo = RepoGraph(graph=self.graph, host=self.host, port=self.port)
@@ -859,7 +1034,7 @@ class WebApp:
     # -- helpers -----------------------------------------------------------
 
     def status_line(self) -> str:
-        llm = ChatLLM()
+        llm = self._llm_factory()
         state = (
             "configured"
             if llm.is_configured()

@@ -17,10 +17,12 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from typing import ClassVar
 
 import pytest
 
 from archivist.ingest import ingest
+from archivist.llm import LLMResponse
 from archivist.webapp import ApiError, WebApp, make_server
 
 
@@ -491,3 +493,102 @@ def test_inflight_cap_refuses_excess_with_503(chain_repo, falkordb_or_skip, temp
             conn.close()
         server.shutdown()
         server.server_close()
+
+
+# -- /api/graph/induced (M4R step 3: Trace Ribbon replay) --------------------
+
+
+def test_induced_resolves_evidence_and_edges(web_server: str):
+    """Symbol refs resolve; the CALLS edges *among* them come back."""
+    status, data = post_json(
+        web_server + "/api/graph/induced",
+        {
+            "steps": [
+                {
+                    "id": "s0",
+                    "symbols": [
+                        {"file": "app.py", "qualname": "main"},
+                        {"file": "util.py", "qualname": "helper"},
+                        {"file": "util.py", "qualname": "leaf"},
+                    ],
+                }
+            ]
+        },
+    )
+    assert status == 200
+    step = data["steps"][0]
+    assert step["id"] == "s0"
+    coords = {
+        (n["props"].get("file"), n["props"].get("qualname")) for n in step["nodes"]
+    }
+    assert ("app.py", "main") in coords
+    assert ("util.py", "helper") in coords
+    assert ("util.py", "leaf") in coords
+    ids = {
+        f"{n['props'].get('file')}:{n['props'].get('qualname')}": n["id"]
+        for n in step["nodes"]
+    }
+    pairs = {(e["source"], e["target"]) for e in step["edges"] if e["rel"] == "CALLS"}
+    assert (ids["app.py:main"], ids["util.py:helper"]) in pairs
+    assert (ids["util.py:helper"], ids["util.py:leaf"]) in pairs
+
+
+def test_induced_is_honest_about_missing_refs(web_server: str):
+    status, data = post_json(
+        web_server + "/api/graph/induced",
+        {"steps": [{"id": "s1", "symbols": [{"file": "app.py", "qualname": "ghost"}]}]},
+    )
+    assert status == 200
+    step = data["steps"][0]
+    assert step["nodes"] == [] and step["edges"] == []
+    assert any("did not resolve" in note for note in step["notes"])
+
+
+def test_induced_validates_shape(web_server: str):
+    for payload in ({}, {"steps": []}, {"steps": [{"symbols": []}]}, {"steps": ["x"]}):
+        try:
+            post_json(web_server + "/api/graph/induced", payload)
+            raise AssertionError(f"expected 400 for {payload!r}")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 400, payload
+
+
+# -- ask via the llm_factory seam (M4R step 3: scripted capture server) ------
+
+
+class _EchoLLM:
+    """Minimal stand-in for ChatLLM: one final answer, no tool calls."""
+
+    model = "fake-model"
+    usage: ClassVar[dict] = {}
+
+    def is_configured(self) -> bool:
+        return True
+
+    def chat(self, messages, tools=None):
+        return LLMResponse(content="scripted answer for the ribbon test")
+
+
+def test_ask_runs_with_injected_llm_factory(chain_repo, falkordb_or_skip, temp_graph):
+    host, port = falkordb_or_skip
+    ingest(chain_repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port, llm_factory=_EchoLLM)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        status, data = post_json(
+            base + "/api/ask", {"question": "who calls main?", "remember": False}
+        )
+        state_status, state = get_json(base + "/api/state")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert status == 200
+    assert data["answer"]["text"] == "scripted answer for the ribbon test"
+    assert data["answer"]["llm_calls"] == 1
+    assert data["episode_id"] is None  # remember=False -> no memory write
+    assert state_status == 200
+    assert state["llm"]["configured"] is True
+    assert state["llm"]["model"] == "fake-model"
