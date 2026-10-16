@@ -75,7 +75,12 @@ class Memory:
         self, host: str = "127.0.0.1", port: int = 6379, graph: str = "repo:flask"
     ):
         self.graph_name = graph
-        self._graph = FalkorDB(host=host, port=port).select_graph(graph)
+        self._db = FalkorDB(host=host, port=port)
+        self._graph = self._db.select_graph(graph)
+
+    def close(self) -> None:
+        """Release this instance's client connection (best-effort)."""
+        self._db.close()
 
     @staticmethod
     def now() -> int:

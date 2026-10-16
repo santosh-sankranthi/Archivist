@@ -69,8 +69,17 @@ class RepoGraph:
         self, graph: str = "repo:flask", host: str = "127.0.0.1", port: int = 6379
     ):
         self.graph_name = graph
-        self._graph = FalkorDB(host=host, port=port).select_graph(graph)
+        self._db = FalkorDB(host=host, port=port)
+        self._graph = self._db.select_graph(graph)
         self.trace: list[QueryRecord] = []
+
+    def close(self) -> None:
+        """Release this instance's client connection (best-effort).
+
+        Short-lived owners (the web layer, tests) close explicitly and get
+        flat fd counts; the long-running CLIs simply exit.
+        """
+        self._db.close()
 
     # -- plumbing ----------------------------------------------------------
 

@@ -8,7 +8,9 @@ what these tests check. Skips cleanly when FalkorDB is absent.
 
 from __future__ import annotations
 
+import gc
 import json
+import os
 import threading
 import urllib.error
 import urllib.request
@@ -176,4 +178,126 @@ def test_ask_refuses_honestly_without_llm(web_server: str, monkeypatch):
     except urllib.error.HTTPError as exc:
         assert exc.code == 503
         payload = json.loads(exc.read())
+        assert payload["error"] == "unavailable"
         assert "no LLM configured" in payload["message"]
+
+
+def test_cypher_null_scalar_is_preserved(web_server: str):
+    # A NULL column is part of what the query returned: keep it visible.
+    status, data = post_json(web_server + "/api/cypher", {"cypher": "RETURN null AS z"})
+    assert status == 200
+    assert data["count"] == 1
+    assert data["scalars"] == [{"z": None}]
+
+
+def test_cypher_refusals_map_to_4xx(web_server: str):
+    # A syntax error is a client error, not a server fault.
+    try:
+        post_json(web_server + "/api/cypher", {"cypher": "MATCH (n RETURN n"})
+        raise AssertionError("expected 400")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400
+        assert json.loads(exc.read())["error"] == "bad_request"
+    # A write through the read-only gate is an explicit 403...
+    try:
+        post_json(web_server + "/api/cypher", {"cypher": "CREATE (x:ReviewWrite)"})
+        raise AssertionError("expected 403")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403
+    # ...and nothing was created.
+    _, data = post_json(
+        web_server + "/api/cypher",
+        {"cypher": "MATCH (x:ReviewWrite) RETURN count(x) AS n"},
+    )
+    assert data["scalars"] == [{"n": 0}]
+
+
+def test_edge_only_rows_surface_plotting_note(web_server: str):
+    status, data = post_json(
+        web_server + "/api/cypher", {"cypher": "MATCH (a)-[e]->(b) RETURN e LIMIT 1"}
+    )
+    assert status == 200
+    assert data["count"] == 1
+    assert data["edges"] == []
+    assert any("include endpoints" in note for note in data["notes"])
+
+
+def test_cypher_params_must_be_object(web_server: str):
+    try:
+        post_json(web_server + "/api/cypher", {"cypher": "RETURN 1", "params": []})
+        raise AssertionError("expected 400")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400
+
+
+def test_cap_notes_track_exact_excess(web_server: str, monkeypatch):
+    monkeypatch.setattr("archivist.webapp.MAX_SYMBOLS_PER_FILE", 1000)
+    _, data = get_json(web_server + "/api/graph/file?path=app.py")
+    n = len([x for x in data["nodes"] if x["type"] == "Symbol"])
+    assert n >= 2
+    assert not any("capped" in note for note in data["notes"])
+
+    # Exactly the cap: nothing is dropped, so no note.
+    monkeypatch.setattr("archivist.webapp.MAX_SYMBOLS_PER_FILE", n)
+    _, data = get_json(web_server + "/api/graph/file?path=app.py")
+    assert not any("capped" in note for note in data["notes"])
+
+    # One under the total: exactly one symbol is not shown.
+    monkeypatch.setattr("archivist.webapp.MAX_SYMBOLS_PER_FILE", n - 1)
+    _, data = get_json(web_server + "/api/graph/file?path=app.py")
+    assert f"symbols capped at {n - 1} (1 not shown)" in data["notes"]
+
+    # Module importers: exactly the cap, nothing dropped.
+    monkeypatch.setattr("archivist.webapp.MAX_IMPORTERS_PER_MODULE", 1)
+    _, data = get_json(web_server + "/api/graph/module?name=util")
+    assert not any("capped" in note for note in data["notes"])
+
+
+def test_other_methods_return_json_not_html(web_server: str):
+    for method in ("HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"):
+        request = urllib.request.Request(web_server + "/api/cypher", method=method)
+        try:
+            urllib.request.urlopen(request, timeout=15)
+            raise AssertionError(f"expected 404 for {method}")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404, method
+            assert "application/json" in exc.headers.get("Content-Type", ""), method
+
+
+def test_body_cap_refused_with_413(web_server: str, monkeypatch):
+    monkeypatch.setattr("archivist.webapp.MAX_BODY", 64)
+    request = urllib.request.Request(
+        web_server + "/api/cypher",
+        data=b"x" * 100,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(request, timeout=15)
+        raise AssertionError("expected 413")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 413
+        assert json.loads(exc.read())["error"] == "too_large"
+
+
+def test_server_header_hides_interpreter(web_server: str):
+    with urllib.request.urlopen(web_server + "/", timeout=15) as res:
+        assert res.headers.get("Server") == "Archivist/0.4"
+
+
+def test_fd_count_stable_across_requests(web_server: str):
+    # REVIEW-M4a F1: per-query clients must not accumulate open sockets.
+    if not os.path.isdir("/proc/self/fd"):
+        pytest.skip("no /proc/self/fd on this host")
+    for _ in range(5):  # warm up first-connection fds
+        get_json(web_server + "/api/state")
+    gc.collect()
+    before = len(os.listdir("/proc/self/fd"))
+    for i in range(50):
+        if i % 2:
+            get_json(web_server + "/api/state")
+        else:
+            get_json(web_server + "/api/graph/file?path=app.py")
+    gc.collect()
+    after = len(os.listdir("/proc/self/fd"))
+    assert after - before <= 6, f"fd leak across 50 requests: {before} -> {after}"

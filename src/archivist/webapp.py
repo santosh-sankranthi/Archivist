@@ -31,6 +31,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from falkordb import Edge, FalkorDB, Node
 from falkordb import Path as GraphPath
+from redis.exceptions import ResponseError
 
 from .agent import Agent
 from .llm import ChatLLM
@@ -46,12 +47,23 @@ MAX_EDGES = 520
 MAX_SYMBOLS_PER_FILE = 140
 MAX_IMPORTS_PER_FILE = 80
 MAX_IMPORTERS_PER_MODULE = 150
+MAX_BODY = 1_000_000  # POST bodies beyond this are refused (413) before parsing
 
 LLM_HINT = (
     "no LLM configured — set ARCHIVIST_LLM_BASE_URL, ARCHIVIST_LLM_API_KEY and "
     "ARCHIVIST_LLM_MODEL (or OPENAI_* equivalents) in the environment or the "
     "repo-root .env, then restart the server"
 )
+
+# Honest error codes per status: a refusal is not a "bad request", and a
+# missing key is not a client error (REVIEW-M4a F5).
+_ERROR_CODES = {
+    400: "bad_request",
+    403: "forbidden",
+    404: "not_found",
+    413: "too_large",
+    503: "unavailable",
+}
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -132,7 +144,9 @@ def collect(result_set, columns) -> tuple[dict, dict, list[dict]]:
     for row in result_set:
         scalar_row: dict = {}
         for column, value in zip(columns, row, strict=True):
-            if not take(value) and value is not None:
+            if not take(value):
+                # Keep NULL columns: "what the query returned" includes nulls,
+                # and a dropped column is indistinguishable from an absent one.
                 scalar_row[column] = _jsonable(value)
         if scalar_row:
             scalars.append(scalar_row)
@@ -156,7 +170,8 @@ def finalize(
     }
     if len(kept_edges) != len(edges):
         notes.append(
-            f"{len(edges) - len(kept_edges)} edge(s) dropped (endpoint not in result)"
+            f"{len(edges) - len(kept_edges)} edge(s) dropped — endpoint node(s) "
+            "not in result; include endpoints in RETURN to plot"
         )
     edges = kept_edges
 
@@ -197,12 +212,18 @@ class WebApp:
 
     # -- plumbing ----------------------------------------------------------
 
-    def _client(self):
-        """A fresh read-only client per request; cheap and thread-safe."""
-        return FalkorDB(host=self.host, port=self.port).select_graph(self.graph)
-
     def _ro(self, cypher: str, params: dict | None = None):
-        return self._client().ro_query(cypher, params or {})
+        """One short-lived read-only client per query, closed in ``finally``.
+
+        A fresh connection is cheap on localhost and keeps shared state at
+        zero across threaded requests; closing here keeps the process fd
+        count flat over long console sessions (REVIEW-M4a F1).
+        """
+        db = FalkorDB(host=self.host, port=self.port)
+        try:
+            return db.select_graph(self.graph).ro_query(cypher, params or {})
+        finally:
+            db.close()
 
     def _project(
         self, cypher: str, params: dict | None = None, *, focus=None, notes=None
@@ -250,8 +271,18 @@ class WebApp:
             )
         except ApiError as exc:
             return self._json(
-                exc.status, {"error": "bad_request", "message": exc.message}
+                exc.status,
+                {
+                    "error": _ERROR_CODES.get(exc.status, "error"),
+                    "message": exc.message,
+                },
             )
+        except ResponseError as exc:
+            # Client-class failure (bad Cypher, refused write), not a server fault.
+            text = str(exc)
+            if "read-only" in text.lower():
+                return self._json(403, {"error": "forbidden", "message": text})
+            return self._json(400, {"error": "bad_request", "message": text})
         # One bad route must not kill the console — surface it as JSON.
         except Exception as exc:  # noqa: BLE001
             return self._json(
@@ -272,7 +303,10 @@ class WebApp:
 
     def _state(self) -> dict:
         repo = RepoGraph(graph=self.graph, host=self.host, port=self.port)
-        overview = repo.overview()["results"]
+        try:
+            overview = repo.overview()["results"]
+        finally:
+            repo.close()
         counts = {row["label"]: row["count"] for row in overview["nodes"]}
         latest = self._ro("""
             MATCH (e:Episode)
@@ -352,7 +386,10 @@ class WebApp:
         except ValueError:
             limit = 12
         repo = RepoGraph(graph=self.graph, host=self.host, port=self.port)
-        envelope = repo.find_symbols(q, limit=limit)
+        try:
+            envelope = repo.find_symbols(q, limit=limit)
+        finally:
+            repo.close()
         files = self._ro(
             """
             MATCH (f:File)
@@ -400,11 +437,27 @@ class WebApp:
         )
         nodes.update(imp_nodes)
         edges.update(imp_edges)
+        total_symbols = self._ro(
+            "MATCH (f:File {path: $path})-[:DEFINES]->(s:Symbol) RETURN count(s) AS n",
+            {"path": path},
+        ).result_set
+        total_imports = self._ro(
+            "MATCH (f:File {path: $path})-[:IMPORTS]->(m:Module) RETURN count(m) AS n",
+            {"path": path},
+        ).result_set
+        total_symbols = total_symbols[0][0] if total_symbols else 0
+        total_imports = total_imports[0][0] if total_imports else 0
         notes = []
-        if len(symbols.result_set) >= MAX_SYMBOLS_PER_FILE:
-            notes.append(f"symbols capped at {MAX_SYMBOLS_PER_FILE}")
-        if len(imports.result_set) >= MAX_IMPORTS_PER_FILE:
-            notes.append(f"imports capped at {MAX_IMPORTS_PER_FILE}")
+        if total_symbols > MAX_SYMBOLS_PER_FILE:
+            notes.append(
+                f"symbols capped at {MAX_SYMBOLS_PER_FILE} "
+                f"({total_symbols - MAX_SYMBOLS_PER_FILE} not shown)"
+            )
+        if total_imports > MAX_IMPORTS_PER_FILE:
+            notes.append(
+                f"imports capped at {MAX_IMPORTS_PER_FILE} "
+                f"({total_imports - MAX_IMPORTS_PER_FILE} not shown)"
+            )
         history = self._ro(
             """
             MATCH (c:Commit)-[m:MODIFIED]->(f:File {path: $path})
@@ -447,9 +500,19 @@ class WebApp:
         )
         if not nodes:
             raise ApiError(404, f"no Module `{name}` in {self.graph}")
+        total_importers = self._ro(
+            "MATCH (f:File)-[:IMPORTS]->(m:Module {name: $name}) RETURN count(f) AS n",
+            {"name": name},
+        ).result_set
+        total_importers = total_importers[0][0] if total_importers else 0
         notes = (
-            [f"importers capped at {MAX_IMPORTERS_PER_MODULE}"]
-            if len(imports.result_set) >= MAX_IMPORTERS_PER_MODULE
+            [
+                (
+                    f"importers capped at {MAX_IMPORTERS_PER_MODULE} "
+                    f"({total_importers - MAX_IMPORTERS_PER_MODULE} not shown)"
+                )
+            ]
+            if total_importers > MAX_IMPORTERS_PER_MODULE
             else []
         )
         return finalize(nodes, edges, notes=notes)
@@ -537,7 +600,11 @@ class WebApp:
             raise ApiError(400, 'pass {"cypher": "..."}')
         if len(cypher) > 4000:
             raise ApiError(400, "query too long (4000 chars max)")
-        params = body.get("params") if isinstance(body.get("params"), dict) else {}
+        params = body.get("params")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            raise ApiError(400, "params must be a JSON object")
         result = self._ro(cypher, params)
         columns = [header[1] for header in result.header]
         rows = result.result_set
@@ -572,46 +639,51 @@ class WebApp:
             if remember
             else None
         )
-        warnings: list[str] = []
-        episode_id = None
-        if memory is not None:
-            try:
-                rows = repo.query("MATCH (r:Repo) RETURN r.head AS head")[
-                    "results"
-                ] or [{}]
-                episode_id = memory.record_episode(
-                    kind="agent-session",
-                    source="webapp",
-                    question=question,
-                    graph=self.graph,
-                    model=llm.model,
-                    head=rows[0].get("head"),
-                )
-            except Exception as exc:  # noqa: BLE001 - memory writes are best-effort
-                warnings.append(f"memory write failed: {exc}")
-        answer = Agent(
-            repo, llm, max_steps=max_steps, memory=memory, episode_id=episode_id
-        ).ask(question)
-        if memory is not None and episode_id is not None:
-            try:
-                memory.record_episode(
-                    id=episode_id,
-                    answer=answer.text,
-                    partial=answer.partial,
-                    error=answer.error,
-                    llm_calls=answer.llm_calls,
-                    steps=len(answer.steps),
-                    queries=len(answer.queries),
-                )
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"memory write failed: {exc}")
-                episode_id = None
-        return {
-            "configured": True,
-            "answer": answer.to_dict(),
-            "episode_id": episode_id,
-            "warnings": warnings,
-        }
+        try:
+            warnings: list[str] = []
+            episode_id = None
+            if memory is not None:
+                try:
+                    rows = repo.query("MATCH (r:Repo) RETURN r.head AS head")[
+                        "results"
+                    ] or [{}]
+                    episode_id = memory.record_episode(
+                        kind="agent-session",
+                        source="webapp",
+                        question=question,
+                        graph=self.graph,
+                        model=llm.model,
+                        head=rows[0].get("head"),
+                    )
+                except Exception as exc:  # noqa: BLE001 - memory writes are best-effort
+                    warnings.append(f"memory write failed: {exc}")
+            answer = Agent(
+                repo, llm, max_steps=max_steps, memory=memory, episode_id=episode_id
+            ).ask(question)
+            if memory is not None and episode_id is not None:
+                try:
+                    memory.record_episode(
+                        id=episode_id,
+                        answer=answer.text,
+                        partial=answer.partial,
+                        error=answer.error,
+                        llm_calls=answer.llm_calls,
+                        steps=len(answer.steps),
+                        queries=len(answer.queries),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(f"memory write failed: {exc}")
+                    episode_id = None
+            return {
+                "configured": True,
+                "answer": answer.to_dict(),
+                "episode_id": episode_id,
+                "warnings": warnings,
+            }
+        finally:
+            repo.close()
+            if memory is not None:
+                memory.close()
 
     # -- helpers -----------------------------------------------------------
 
@@ -633,6 +705,11 @@ def make_server(
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "Archivist/0.4"
+        sys_version = ""  # don't leak the interpreter version in Server:
+        timeout = 15  # a stalled socket must not pin a worker thread forever
+
+        def version_string(self) -> str:
+            return self.server_version
 
         def do_GET(self):
             self._dispatch("GET")
@@ -640,12 +717,37 @@ def make_server(
         def do_POST(self):
             self._dispatch("POST")
 
+        def do_HEAD(self):
+            self._dispatch("HEAD")
+
+        def do_PUT(self):
+            self._dispatch("PUT")
+
+        def do_PATCH(self):
+            self._dispatch("PATCH")
+
+        def do_DELETE(self):
+            self._dispatch("DELETE")
+
+        def do_OPTIONS(self):
+            self._dispatch("OPTIONS")
+
         def _dispatch(self, method: str) -> None:
+            close_after = False
             try:
                 split = urlsplit(self.path)
                 body: dict = {}
                 if method == "POST":
                     length = int(self.headers.get("Content-Length") or 0)
+                    if length < 0:
+                        raise ValueError("bad Content-Length")
+                    if length > MAX_BODY:
+                        close_after = True  # unread body: don't reuse the socket
+                        raise ApiError(
+                            413,
+                            f"request body too large "
+                            f"({length} bytes; max {MAX_BODY})",
+                        )
                     raw = self.rfile.read(length) if length else b""
                     parsed = json.loads(raw.decode("utf-8") or "{}")
                     if not isinstance(parsed, dict):
@@ -653,6 +755,14 @@ def make_server(
                     body = parsed
                 status, content_type, payload = self.server.app.dispatch(  # type: ignore[attr-defined]
                     method, split.path, parse_qs(split.query), body
+                )
+            except ApiError as exc:
+                status, content_type, payload = WebApp._json(
+                    exc.status,
+                    {
+                        "error": _ERROR_CODES.get(exc.status, "error"),
+                        "message": exc.message,
+                    },
                 )
             except (ValueError, json.JSONDecodeError) as exc:
                 status, content_type, payload = WebApp._json(
@@ -663,7 +773,10 @@ def make_server(
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(payload)
+            if method != "HEAD":
+                self.wfile.write(payload)
+            if close_after:
+                self.close_connection = True
 
         def log_message(self, format: str, *args) -> None:
             if os.environ.get("ARCHIVIST_WEB_LOG"):
