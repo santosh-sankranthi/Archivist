@@ -11,7 +11,9 @@ from __future__ import annotations
 import gc
 import json
 import os
+import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -301,3 +303,68 @@ def test_fd_count_stable_across_requests(web_server: str):
     gc.collect()
     after = len(os.listdir("/proc/self/fd"))
     assert after - before <= 6, f"fd leak across 50 requests: {before} -> {after}"
+
+
+def test_inflight_cap_refuses_excess_with_503(chain_repo, falkordb_or_skip, temp_graph):
+    """Under a tunnel, stalled connections must be refused fast, not queued.
+
+    M5 hardening: the console may serve through a public tunnel, where an
+    unbounded thread-per-connection server is a flood amplifier. Two stalled
+    clients (headers never terminated) hold both slots; a fresh request must
+    come back 503 + Retry-After instead of piling on. Closing them frees the
+    slots and the console serves again.
+    """
+
+    def attempt(url: str) -> tuple[int, str | None]:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as res:
+                return res.status, res.headers.get("Retry-After")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.headers.get("Retry-After")
+
+    host, port = falkordb_or_skip
+    ingest(chain_repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0, max_inflight=2)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    stalled: list[socket.socket] = []
+    try:
+        for _ in range(2):
+            conn = socket.create_connection(
+                ("127.0.0.1", server.server_port), timeout=5
+            )
+            # Send a partial request so the handler blocks mid-headers: the
+            # connection holds a slot but never becomes a served request.
+            conn.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n")
+            stalled.append(conn)
+        time.sleep(0.3)  # let the accept loop swallow both before we probe
+
+        deadline = time.monotonic() + 6
+        refused = False
+        while time.monotonic() < deadline:
+            code, retry = attempt(base + "/api/state")
+            if code == 503 and retry == "5":
+                refused = True
+                break
+            time.sleep(0.05)
+        assert refused, "expected a fast 503 refusal while both slots were held"
+
+        for conn in stalled:
+            conn.close()
+        stalled.clear()
+
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            code, _ = attempt(base + "/api/state")
+            if code == 200:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("console did not recover after the stalled clients left")
+    finally:
+        for conn in stalled:
+            conn.close()
+        server.shutdown()
+        server.server_close()

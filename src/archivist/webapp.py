@@ -19,12 +19,17 @@ Endpoints:
     GET  /api/graph/symbol     call neighbourhood (callers + callees, ≤3 hops)
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
+
+The server is bounded: at most ``MAX_INFLIGHT`` requests are served at once,
+so the console can face a tunnel (M5) without turning a burst of stalled
+connections into unbounded threads on a 4.8 GB box.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -48,6 +53,11 @@ MAX_SYMBOLS_PER_FILE = 140
 MAX_IMPORTS_PER_FILE = 80
 MAX_IMPORTERS_PER_MODULE = 150
 MAX_BODY = 1_000_000  # POST bodies beyond this are refused (413) before parsing
+# Public-exposure guard (M5): in-flight requests are capped so a tunnel in
+# front of the console cannot amplify a flood of connections into a flood of
+# threads. Over-cap connections are refused fast (503 + Retry-After), never
+# queued; the cap is a safety valve, not a rate limiter.
+MAX_INFLIGHT = 48
 
 LLM_HINT = (
     "no LLM configured — set ARCHIVIST_LLM_BASE_URL, ARCHIVIST_LLM_API_KEY and "
@@ -697,10 +707,67 @@ class WebApp:
         return f"graph={self.graph} llm={state}"
 
 
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a hard cap on concurrently served requests.
+
+    A slot is taken when a connection is accepted and released when its
+    handler finishes. Over-cap connections get a bare 503 + Retry-After so
+    clients can back off; ``max_inflight`` is clamped to >= 1.
+    """
+
+    daemon_threads = True
+
+    def __init__(self, address, handler, *, max_inflight: int = MAX_INFLIGHT):
+        super().__init__(address, handler)
+        self._slots = threading.BoundedSemaphore(max(1, int(max_inflight)))
+
+    def process_request(self, request, client_address) -> None:
+        if not self._slots.acquire(blocking=False):
+            body = (
+                b'{"error": "unavailable", '
+                b'"message": "server at capacity; retry shortly"}'
+            )
+            head = (
+                "HTTP/1.1 503 Service Unavailable\r\n"
+                "Content-Type: application/json; charset=utf-8\r\n"
+                f"Content-Length: {len(body)}\r\n"
+                "Retry-After: 5\r\n"
+                "Connection: close\r\n\r\n"
+            )
+            try:
+                request.sendall(head.encode("ascii") + body)
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            # The worker thread never started, so its ``finally`` cannot
+            # release the slot; release it here instead of leaking one.
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 def make_server(
-    app: WebApp, *, bind: str = "127.0.0.1", port: int = 8787
+    app: WebApp,
+    *,
+    bind: str = "127.0.0.1",
+    port: int = 8787,
+    max_inflight: int = MAX_INFLIGHT,
 ) -> ThreadingHTTPServer:
-    """A threaded HTTP server for ``app``; port 0 picks a free port (tests)."""
+    """A threaded HTTP server for ``app``; port 0 picks a free port (tests).
+
+    At most ``max_inflight`` requests are served at once
+    (:data:`MAX_INFLIGHT` by default); over-cap connections get 503 +
+    Retry-After instead of an unbounded worker thread.
+    """
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -782,7 +849,8 @@ def make_server(
             if os.environ.get("ARCHIVIST_WEB_LOG"):
                 print(f"[web] {self.address_string()} {format % args}")
 
-    server = ThreadingHTTPServer((bind, port), Handler)
-    server.daemon_threads = True
+    server = _BoundedThreadingHTTPServer(
+        (bind, port), Handler, max_inflight=max_inflight
+    )
     server.app = app  # type: ignore[attr-defined]
     return server
