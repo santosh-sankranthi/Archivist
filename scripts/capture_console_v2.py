@@ -12,10 +12,11 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
         --url http://127.0.0.1:8787 --ask-url http://127.0.0.1:8789 \
         --out docs/demo/m4r
 
-Scenes: home (00), explorer (01–03), ask (04–05). Waits on the canvas
-`data-settled="1"` stamp and on scripted answer text instead of fixed
-sleeps wherever possible; fails loudly on any JS error so a broken build
-never lands in docs/.
+Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
+(04–05). Waits on the canvas `data-settled="1"` stamp, on scripted answer
+text, and on the landing's `window.__archivist.stagedAt` timeline token
+instead of fixed sleeps wherever possible; fails loudly on any JS error so
+a broken build never lands in docs/.
 """
 
 from __future__ import annotations
@@ -61,9 +62,28 @@ def wait_settled(page: Page) -> None:
     page.wait_for_timeout(650)  # let spotlight/edge transitions finish
 
 
-def run_home(page: Page, base: str, out: Path) -> None:
-    """00: landing — hero ask line, live stat strip, hubs, starters."""
+def wait_stage(page: Page, ms: float) -> None:
+    """Wait until the landing entrance has been staged for >= `ms`."""
+    page.wait_for_function(
+        "ms => window.__archivist && window.__archivist.stagedAt > 0 && "
+        "performance.now() - window.__archivist.stagedAt >= ms",
+        arg=ms,
+        timeout=20000,
+    )
+
+
+def run_landing(page: Page, base: str, out: Path) -> None:
+    """hero / hero-energy: the landing at /console/ (entrance-timeline aligned)."""
     page.goto(f"{base}/console/", wait_until="load")
+    wait_stage(page, 1500)
+    shot(page, out, "hero")
+    wait_stage(page, 2800)
+    shot(page, out, "hero-energy")
+
+
+def run_home(page: Page, base: str, out: Path) -> None:
+    """00: overview — hero ask line, live stat strip, hubs, starters."""
+    page.goto(f"{base}/console/overview", wait_until="load")
     page.get_by_text("url_for changes", exact=False).first.wait_for(timeout=20000)
     page.wait_for_timeout(700)
     shot(page, out, "00-home")
@@ -158,7 +178,9 @@ def main() -> int:
         help="scripted capture server for ask scenes (default: --url)",
     )
     ap.add_argument(
-        "--scene", choices=["all", "home", "explorer", "ask"], default="all"
+        "--scene",
+        choices=["all", "landing", "home", "explorer", "ask"],
+        default="all",
     )
     ap.add_argument("--out", default="docs/demo/m4r")
     ap.add_argument("--width", type=int, default=1600)
@@ -182,6 +204,8 @@ def main() -> int:
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
 
+        if args.scene in ("all", "landing"):
+            run_landing(page, base, out)
         if args.scene in ("all", "home"):
             run_home(page, base, out)
         if args.scene in ("all", "explorer"):
