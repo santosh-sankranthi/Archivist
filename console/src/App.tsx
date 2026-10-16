@@ -14,6 +14,7 @@ import { AskView } from "./views/AskView";
 import { Explorer } from "./views/Explorer";
 import { Home } from "./views/Home";
 import { Landing } from "./views/Landing";
+import { Memory } from "./views/Memory";
 import styles from "./App.module.css";
 
 /** Route split: `/console/` is the landing; everything else runs in the shell.
@@ -64,6 +65,8 @@ function Shell() {
     view = <Explorer query={query} />;
   } else if (path === "/ask") {
     view = <AskView query={query} />;
+  } else if (path === "/memory") {
+    view = <Memory />;
   } else if (path === "/about") {
     view = <About state={state.data} stateError={state.error?.message ?? null} />;
   } else {

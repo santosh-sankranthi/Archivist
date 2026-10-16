@@ -37,3 +37,20 @@ export function clampText(text: string, n: number): string {
   if (text.length <= n) return text;
   return `${text.slice(0, Math.max(0, n - 1))}…`;
 }
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+/** Unix seconds -> "Oct 16, 21:53" (UTC). Deterministic on purpose — the
+ *  memory timeline and its screenshots must not depend on the viewer's TZ. */
+export function stamp(ts: number): string {
+  const d = new Date(ts * 1000);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+/** Unix seconds -> "Oct 16" (UTC) — day grouping for the timeline. */
+export function stampDay(ts: number): string {
+  const d = new Date(ts * 1000);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}

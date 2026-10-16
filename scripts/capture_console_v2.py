@@ -13,8 +13,8 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
         --out docs/demo/m4r
 
 Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
-(04–05), palette (06), about (07). Waits on the canvas `data-settled="1"`
-stamp, on scripted answer text, and on the landing's
+(04–05), palette (06), about (07), memory (08–09). Waits on the canvas
+`data-settled="1"` stamp, on scripted answer text, and on the landing's
 `window.__archivist.stagedAt` timeline token instead of fixed sleeps
 wherever possible; fails loudly on any JS error so a broken build never
 lands in docs/.
@@ -204,6 +204,41 @@ def run_about(page: Page, base: str, out: Path) -> None:
     shot(page, out, "07-about")
 
 
+def run_memory(page: Page, base: str, out: Path) -> None:
+    """08–09: memory ledger — now frame, then an honest as-of frame.
+
+    The as-of target is read live: one minute after the newest supersede,
+    so the frame shows the claim that was true then (and the episodes it
+    sits between), not a fabricated instant.
+    """
+    page.goto(f"{base}/console/memory", wait_until="load")
+    page.wait_for_selector("[data-memory-mode='now']", timeout=20000)
+    page.get_by_text("What the archive remembers.").wait_for(timeout=20000)
+    page.wait_for_timeout(900)  # bar draw-in + fact stagger land
+    shot(page, out, "08-memory")
+
+    payload = page.request.get(f"{base}/api/graph/memory").json()
+    moments = [
+        f["valid_at"]
+        for f in payload.get("facts", [])
+        if f.get("supersedes") and f.get("valid_at")
+    ]
+    if not moments:
+        print("  note: no supersede in the ledger — as-of shot skipped")
+        return
+    target = max(moments) + 60
+    page.locator("input[type='range']").evaluate(
+        "(el, target) => {"
+        "  el.value = String(target);"
+        "  el.dispatchEvent(new Event('input', { bubbles: true }));"
+        "}",
+        target,
+    )
+    page.wait_for_selector("[data-memory-mode='as_of']", timeout=20000)
+    page.wait_for_timeout(900)
+    shot(page, out, "09-memory-asof")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
@@ -214,7 +249,16 @@ def main() -> int:
     )
     ap.add_argument(
         "--scene",
-        choices=["all", "landing", "home", "explorer", "ask", "palette", "about"],
+        choices=[
+            "all",
+            "landing",
+            "home",
+            "explorer",
+            "ask",
+            "palette",
+            "about",
+            "memory",
+        ],
         default="all",
     )
     ap.add_argument("--out", default="docs/demo/m4r")
@@ -251,6 +295,8 @@ def main() -> int:
             run_palette(page, base, out)
         if args.scene in ("all", "about"):
             run_about(page, base, out)
+        if args.scene in ("all", "memory"):
+            run_memory(page, base, out)
 
         browser.close()
 

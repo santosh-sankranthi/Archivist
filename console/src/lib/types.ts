@@ -188,3 +188,77 @@ export interface ReplayStepPayload extends GraphPayload {
 export interface InducedResponse {
   steps: ReplayStepPayload[];
 }
+
+/** `/api/graph/memory` — the memory timeline (episodes + bi-temporal facts).
+ *  Three modes over the same state: "now" (open windows), "history"
+ *  (invalidate-don't-delete), "as_of" (what was true at epoch T). */
+export interface MemoryHandoff {
+  note: string | null;
+  ts: number | null;
+  to?: string;
+  from?: string;
+}
+
+export interface MemoryEpisode {
+  id: string;
+  kind: string;
+  source: string;
+  ts: number;
+  created_at: number | null;
+  question: string | null;
+  answer: string | null;
+  role: string | null;
+  run: string | null;
+  props: Record<string, unknown>;
+  handoffs: MemoryHandoff[];
+  handoff_in: MemoryHandoff[];
+}
+
+export interface MemoryFactRef {
+  kind: string;
+  label: string | null;
+}
+
+export interface MemoryFact {
+  id: string;
+  kind: string | null;
+  text: string;
+  valid_at: number | null;
+  invalid_at: number | null;
+  created_at: number | null;
+  expired_at: number | null;
+  episode_id: string | null;
+  supersedes: string[];
+  superseded_by: string[];
+  refs: MemoryFactRef[];
+}
+
+/** Minimal fields for chain neighbours the current view hides (server keeps
+ *  these tiny so a chain chip can name an invisible claim without refetch). */
+export interface MemoryChainFact {
+  id: string;
+  text: string;
+  kind: string | null;
+  valid_at: number | null;
+  invalid_at: number | null;
+}
+
+export interface MemoryCounts {
+  episodes: number;
+  facts: number;
+  open_facts: number;
+  handoff_edges: number;
+  supersede_edges: number;
+}
+
+export interface MemoryResponse {
+  graph: string;
+  mode: "now" | "history" | "as_of";
+  as_of: number | null;
+  range: { earliest: number | null; latest: number | null };
+  counts: MemoryCounts;
+  episodes: MemoryEpisode[];
+  facts: MemoryFact[];
+  chain_facts: MemoryChainFact[];
+  notes: string[];
+}

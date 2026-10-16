@@ -8,6 +8,11 @@ only the model's next-move choices are canned). `07-about` was refreshed
 
 Notes:
 
+- `08-memory.png` / `09-memory-asof.png` (M4R P1 Memory view, added
+  ~22:35Z, re-shot 23:17Z) ran on the live server `:8787`; the as-of frame is the same
+  ledger with the scrubber driven to one minute after the newest
+  supersede — the target instant is read from the API at capture time, so
+  no fabricated moment ever lands in docs/.
 - Numbers inside the scripted answer text were read from `repo:flask` when
   the script was written; the graph keeps growing (memory writes), so live
   counts in these PNGs can drift from any later run. The console's own

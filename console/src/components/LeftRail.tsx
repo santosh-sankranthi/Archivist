@@ -20,6 +20,7 @@ const NAV = [
   { path: "/overview", label: "Home" },
   { path: "/explorer", label: "Explorer" },
   { path: "/ask", label: "Ask" },
+  { path: "/memory", label: "Memory" },
   { path: "/about", label: "About" },
 ];
 

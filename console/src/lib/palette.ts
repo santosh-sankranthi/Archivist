@@ -47,6 +47,11 @@ const ACTIONS: ActionDef[] = [
     to: href("/ask"),
   },
   {
+    label: "Go to Memory",
+    keywords: "episodes facts claims timeline bi-temporal scrubber history superseded",
+    to: href("/memory"),
+  },
+  {
     label: "Go to About",
     keywords: "judges architecture falkordb tracks why",
     to: href("/about"),
