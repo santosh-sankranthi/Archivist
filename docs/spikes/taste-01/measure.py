@@ -36,9 +36,22 @@ def browser_env() -> dict[str, str]:
 
 
 SELECTORS = [
-    ".lockup", ".topbar-meta", ".overline", ".display", ".w-path", ".u",
-    ".sub", ".cta-row", ".btn-primary", ".btn-ghost", ".rig", ".rig-rule",
-    ".rig-head", ".rig-stats", ".stat:last-child .stat-num", ".foot",
+    ".lockup",
+    ".topbar-meta",
+    ".overline",
+    ".display",
+    ".w-path",
+    ".u",
+    ".sub",
+    ".cta-row",
+    ".btn-primary",
+    ".btn-ghost",
+    ".rig",
+    ".rig-rule",
+    ".rig-head",
+    ".rig-stats",
+    ".stat:last-child .stat-num",
+    ".foot",
 ]
 
 
@@ -58,9 +71,11 @@ def main() -> int:
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on(
             "console",
-            lambda m: bad_logs.append(f"{m.type}: {m.text}")
-            if m.type in ("error", "warning")
-            else None,
+            lambda m: (
+                bad_logs.append(f"{m.type}: {m.text}")
+                if m.type in ("error", "warning")
+                else None
+            ),
         )
         page.goto(url, wait_until="load")
         page.wait_for_function(
