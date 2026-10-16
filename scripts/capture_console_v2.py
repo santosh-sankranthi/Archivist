@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Capture Console v2 (M4R) screenshots — Explorer pass.
+"""Capture Console v2 (M4R) screenshots — Explorer + Ask/Trace passes.
 
-Usage:
-    .venv/bin/python scripts/capture_console_v2.py \
-        --url http://127.0.0.1:8787 --out docs/demo/m4r
+Usage (two servers: the live console on :8787 for explorer scenes, the
+scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
 
-Drives the /console/ app over the live graph: the url_for neighbourhood
-(settled canvas), a selection with the spotlight + inspector open, and a
-path-finder result. Waits on the canvas `data-settled="1"` stamp instead
-of fixed sleeps wherever the layout is the slow part; fails loudly on any
-JS error so a broken build never lands in docs/.
+    .venv/bin/python scripts/serve.py --http-port 8787          # live
+    .venv/bin/python scripts/serve.py --http-port 8789 \
+        --llm-script docs/demo/m4r/ask-script.json              # scripted
+
+    .venv/bin/python scripts/capture_console_v2.py --scene all \
+        --url http://127.0.0.1:8787 --ask-url http://127.0.0.1:8789 \
+        --out docs/demo/m4r
+
+Scenes: explorer (01–03), ask (04–05). Waits on the canvas
+`data-settled="1"` stamp and on scripted answer text instead of fixed
+sleeps wherever possible; fails loudly on any JS error so a broken build
+never lands in docs/.
 """
 
 from __future__ import annotations
@@ -18,12 +24,15 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 from playwright.sync_api import Page, sync_playwright
 
 # Machines without root can keep Chromium's system libs in a local prefix
 # (same trick as capture_web.py — see INFRA-NOTES).
 _LOCAL_LIBS = Path.home() / ".local/opt/pw-deps/root/usr/lib/x86_64-linux-gnu"
+
+Q1 = "Who calls url_for — and what would break if its signature changed?"
 
 
 def browser_env() -> dict[str, str]:
@@ -47,14 +56,100 @@ def shot(page: Page, out: Path, name: str) -> None:
 def wait_settled(page: Page) -> None:
     page.wait_for_function(
         "() => document.querySelector('[data-settled]')?.dataset.settled === '1'",
-        timeout=15000,
+        timeout=20000,
     )
     page.wait_for_timeout(650)  # let spotlight/edge transitions finish
 
 
+def run_explorer(page: Page, base: str, out: Path) -> None:
+    """01–03: call neighbourhood, selection + inspector, path finder."""
+    explorer = f"{base}/console/explorer?file=src/flask/helpers.py&qualname=url_for"
+
+    # 01 — explorer: the url_for call neighbourhood, canvas settled.
+    page.goto(explorer, wait_until="load")
+    wait_settled(page)
+    shot(page, out, "01-explorer-symbol")
+
+    # 02 — selection: scan likely node/label spots until a non-focus
+    # symbol takes (inspector grows "Focus call graph" / "Find path…").
+    selected = False
+    for x, y in (
+        (1123, 624),
+        (904, 647),
+        (1176, 600),
+        (824, 232),
+        (757, 377),
+        (667, 511),
+        (853, 539),
+        (1040, 821),
+        (571, 843),
+        (1160, 797),
+        (1048, 885),
+        (690, 895),
+        (848, 924),
+    ):
+        page.mouse.click(x, y)
+        page.wait_for_timeout(320)
+        hit = (
+            page.get_by_role("button", name="Find path from here…").count()
+            or page.get_by_role("button", name="Focus call graph").count()
+        )
+        if hit:
+            selected = True
+            break
+    if selected:
+        page.wait_for_timeout(500)
+        shot(page, out, "02-explorer-selection")
+    else:
+        print("  note: no node click landed — selection shot skipped")
+
+    # 03 — path finder: reverse-direction trace (finalize_request is the
+    # caller-end here; the server answers "runs to → from" honestly).
+    page.goto(explorer, wait_until="load")
+    wait_settled(page)
+    page.get_by_role("button", name="path finder").click()
+
+    from_input = page.get_by_placeholder("From — symbol…")
+    from_input.fill("finalize_request")
+    page.locator("button", has_text="finalize_request").filter(
+        has_text="app.py"
+    ).first.click()
+
+    to_input = page.get_by_placeholder("To — symbol…")
+    to_input.fill("wsgi_app")
+    page.locator("button", has_text="wsgi_app").filter(has_text="app.py").first.click()
+
+    page.get_by_role("button", name="trace path").click()
+    page.get_by_text("shortest path", exact=False).wait_for()
+    wait_settled(page)
+    shot(page, out, "03-explorer-path")
+
+
+def run_ask(page: Page, base: str, out: Path) -> None:
+    """04–05: Trace Ribbon (scripted answer) + step focus with replay."""
+    page.goto(f"{base}/console/ask?q={quote(Q1)}", wait_until="load")
+    # The scripted final text is deterministic — wait for it, then settle.
+    page.get_by_text("25 callers", exact=False).first.wait_for(timeout=30000)
+    wait_settled(page)
+    shot(page, out, "04-ask-ribbon")
+
+    # 05 — chip click: spotlight the step's subgraph + open its detail.
+    page.locator("[data-step='0']").click()
+    page.locator('section[aria-label^="Step detail"]').wait_for(timeout=10000)
+    page.wait_for_timeout(700)
+    wait_settled(page)
+    shot(page, out, "05-ask-step")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--url", default="http://127.0.0.1:8787")
+    ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
+    ap.add_argument(
+        "--ask-url",
+        default=None,
+        help="scripted capture server for ask scenes (default: --url)",
+    )
+    ap.add_argument("--scene", choices=["all", "explorer", "ask"], default="all")
     ap.add_argument("--out", default="docs/demo/m4r")
     ap.add_argument("--width", type=int, default=1600)
     ap.add_argument("--height", type=int, default=1000)
@@ -64,7 +159,7 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     base = args.url.rstrip("/")
-    explorer = f"{base}/console/explorer?file=src/flask/helpers.py&qualname=url_for"
+    ask_base = (args.ask_url or args.url).rstrip("/")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, env=browser_env())
@@ -77,66 +172,10 @@ def main() -> int:
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
 
-        # 01 — explorer: the url_for call neighbourhood, canvas settled.
-        page.goto(explorer, wait_until="load")
-        wait_settled(page)
-        shot(page, out, "01-explorer-symbol")
-
-        # 02 — selection: scan likely node/label spots until a non-focus
-        # symbol takes (inspector grows "Focus call graph" / "Find path…").
-        selected = False
-        for x, y in (
-            (1123, 624),
-            (904, 647),
-            (1176, 600),
-            (824, 232),
-            (757, 377),
-            (667, 511),
-            (853, 539),
-            (1040, 821),
-            (571, 843),
-            (1160, 797),
-            (1048, 885),
-            (690, 895),
-            (848, 924),
-        ):
-            page.mouse.click(x, y)
-            page.wait_for_timeout(320)
-            hit = (
-                page.get_by_role("button", name="Find path from here…").count()
-                or page.get_by_role("button", name="Focus call graph").count()
-            )
-            if hit:
-                selected = True
-                break
-        if selected:
-            page.wait_for_timeout(500)
-            shot(page, out, "02-explorer-selection")
-        else:
-            print("  note: no node click landed — selection shot skipped")
-
-        # 03 — path finder: reverse-direction trace (finalize_request is the
-        # caller-end here; the server answers "runs to → from" honestly).
-        page.goto(explorer, wait_until="load")
-        wait_settled(page)
-        page.get_by_role("button", name="path finder").click()
-
-        from_input = page.get_by_placeholder("From — symbol…")
-        from_input.fill("finalize_request")
-        page.locator("button", has_text="finalize_request").filter(
-            has_text="app.py"
-        ).first.click()
-
-        to_input = page.get_by_placeholder("To — symbol…")
-        to_input.fill("wsgi_app")
-        page.locator("button", has_text="wsgi_app").filter(
-            has_text="app.py"
-        ).first.click()
-
-        page.get_by_role("button", name="trace path").click()
-        page.get_by_text("shortest path", exact=False).wait_for()
-        wait_settled(page)
-        shot(page, out, "03-explorer-path")
+        if args.scene in ("all", "explorer"):
+            run_explorer(page, base, out)
+        if args.scene in ("all", "ask"):
+            run_ask(page, ask_base, out)
 
         browser.close()
 
