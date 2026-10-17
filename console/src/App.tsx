@@ -15,6 +15,7 @@ import { Crew } from "./views/Crew";
 import { Explorer } from "./views/Explorer";
 import { History } from "./views/History";
 import { Home } from "./views/Home";
+import { Impact } from "./views/Impact";
 import { Landing } from "./views/Landing";
 import { Memory } from "./views/Memory";
 import styles from "./App.module.css";
@@ -73,6 +74,8 @@ function Shell() {
     view = <Crew />;
   } else if (path === "/history") {
     view = <History />;
+  } else if (path === "/impact") {
+    view = <Impact />;
   } else if (path === "/about") {
     view = <About state={state.data} stateError={state.error?.message ?? null} />;
   } else {

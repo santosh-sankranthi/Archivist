@@ -719,6 +719,15 @@ function Inspector({
               <button
                 type="button"
                 className={styles.actionBtn}
+                onClick={() => navigate(href("/impact", { symbol: qualname, file }))}
+              >
+                Blast radius →
+              </button>
+            ) : null}
+            {isSymbol ? (
+              <button
+                type="button"
+                className={styles.actionBtn}
                 onClick={() => onFindPath({ file, qualname, name })}
               >
                 Find path from here…
@@ -764,6 +773,19 @@ function Inspector({
       </div>
       <div className={styles.inspectorBody}>
         {target?.kind === "symbol" ? statsRow : null}
+        {target?.kind === "symbol" ? (
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.actionBtn}
+              onClick={() =>
+                navigate(href("/impact", { symbol: target.qualname, file: target.file }))
+              }
+            >
+              Blast radius →
+            </button>
+          </div>
+        ) : null}
         {target?.kind === "symbol" ? (
           <p className={styles.gateHint}>Select a node to inspect its coordinates.</p>
         ) : null}

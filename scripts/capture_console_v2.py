@@ -14,7 +14,7 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
 
 Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
 (04–05), palette (06), about (07), memory (08–09), crew (10), history
-(11–13). Waits on the
+(11–13), impact (14–16). Waits on the
 canvas `data-settled="1"` stamp, on scripted answer text, and on the
 landing's `window.__archivist.stagedAt` timeline token instead of fixed
 sleeps wherever possible; fails loudly on any JS error so a broken build
@@ -312,6 +312,37 @@ def drag_busiest_window(page: Page, buckets: list[dict]) -> None:
     page.mouse.up()
 
 
+def run_impact(page: Page, base: str, out: Path) -> None:
+    """14–16: blast radius — a three-ring cone, one expanded chain, and an
+    honest entry point (a symbol nothing resolved calls).
+
+    `stream_with_context` is a real hub with indirect callers (5 direct, 9
+    transitive, 3 hops), so the dial shows filled and dashed rings at once.
+    Expanding the first row proves the chain comes from the server, not from
+    a client-side guess. `main` is the contrast: zero callers is an answer.
+    """
+    page.goto(
+        f"{base}/console/impact?symbol=stream_with_context&file=src/flask/helpers.py",
+        wait_until="load",
+    )
+    page.wait_for_selector("[data-impact='ready']", timeout=20000)
+    page.wait_for_selector("[data-impact-target]", timeout=20000)
+    page.wait_for_selector("button[aria-expanded]", timeout=20000)
+    page.wait_for_timeout(1200)  # ring draw-in + ladder stagger land
+    shot(page, out, "14-impact")
+
+    first = page.locator("button[aria-expanded]").first
+    first.click()
+    page.wait_for_timeout(450)
+    shot(page, out, "15-impact-chain")
+
+    page.goto(f"{base}/console/impact?symbol=main", wait_until="load")
+    page.wait_for_selector("[data-impact='ready']", timeout=20000)
+    page.wait_for_selector("[data-impact-target]", timeout=20000)
+    page.wait_for_timeout(900)
+    shot(page, out, "16-impact-entry")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
@@ -333,6 +364,7 @@ def main() -> int:
             "memory",
             "crew",
             "history",
+            "impact",
         ],
         default="all",
     )
@@ -376,6 +408,8 @@ def main() -> int:
             run_crew(page, base, out)
         if args.scene in ("all", "history"):
             run_history(page, base, out)
+        if args.scene in ("all", "impact"):
+            run_impact(page, base, out)
 
         browser.close()
 

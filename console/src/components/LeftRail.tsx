@@ -19,6 +19,7 @@ interface Props {
 const NAV = [
   { path: "/overview", label: "Home" },
   { path: "/explorer", label: "Explorer" },
+  { path: "/impact", label: "Impact" },
   { path: "/ask", label: "Ask" },
   { path: "/memory", label: "Memory" },
   { path: "/crew", label: "Crew" },

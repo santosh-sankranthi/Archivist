@@ -1,0 +1,881 @@
+/* Blast radius — the reverse call cone as an editorial report. One accent:
+   amber. Severity is distance, expressed by ring strength (a custom prop
+   set per ring) rather than a rainbow. All values are printed; the dial is
+   the glance, the ladder is the record. */
+
+.impact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--sp-10) var(--sp-8) var(--sp-24);
+}
+
+/* -- head ------------------------------------------------------------------ */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  animation: rise var(--t-slow) var(--ease) both;
+}
+
+.eyebrow {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--text-hi);
+}
+
+.lead {
+  max-width: 68ch;
+  color: var(--text-mid);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* -- controls -------------------------------------------------------------- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.controlLabel {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.depthChips {
+  display: flex;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.depthChip {
+  width: 32px;
+  padding: 6px 0;
+  font: 500 12px/1 var(--font-mono);
+  color: var(--text-low);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+
+.depthChip + .depthChip {
+  border-left: 1px solid var(--hairline);
+}
+
+.depthChip:hover {
+  color: var(--text-hi);
+  background: var(--ink-850);
+}
+
+.depthChip[aria-pressed="true"] {
+  color: var(--ink-950);
+  background: var(--amber);
+}
+
+.weakToggle {
+  padding: 6px 10px;
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-mid);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+.weakToggle:hover {
+  color: var(--text-hi);
+  border-color: var(--hairline-strong);
+}
+
+.weakToggle[aria-pressed="true"] {
+  color: var(--amber);
+  border-color: rgba(233, 174, 88, 0.4);
+  background: var(--amber-tint);
+}
+
+.explorerLink {
+  margin-left: auto;
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-low);
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.explorerLink:hover {
+  color: var(--amber);
+}
+
+/* -- states ---------------------------------------------------------------- */
+
+.loading,
+.gateHint {
+  font: 400 12px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+.errorPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-6);
+  border: 1px solid rgba(224, 108, 117, 0.35);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.errorTitle {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 400;
+  color: var(--text-hi);
+}
+
+.errorBody {
+  font: 400 12px/1.6 var(--font-mono);
+  color: var(--rose);
+  overflow-wrap: anywhere;
+}
+
+.errorHint {
+  font-size: 13px;
+  color: var(--text-mid);
+}
+
+/* -- target ---------------------------------------------------------------- */
+
+.target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.targetMain {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.targetKind {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.targetName {
+  font: 500 18px/1.2 var(--font-mono);
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+
+.targetFile {
+  font: 400 11px/1.2 var(--font-mono);
+  color: var(--text-low);
+  overflow-wrap: anywhere;
+}
+
+.targetActions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+.targetBtn {
+  padding: 7px 11px;
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-mid);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+.targetBtn:hover {
+  color: var(--amber);
+  border-color: rgba(233, 174, 88, 0.4);
+}
+
+/* -- stats ----------------------------------------------------------------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--hairline);
+}
+
+.statValue {
+  font: 500 20px/1.1 var(--font-mono);
+  color: var(--text-hi);
+}
+
+.statLabel {
+  font-size: 12px;
+  color: var(--text-low);
+}
+
+/* -- body: dial + rings ---------------------------------------------------- */
+
+.body {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+
+.dialPane {
+  position: sticky;
+  top: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background:
+    radial-gradient(circle at 37% 50%, rgba(233, 174, 88, 0.05), transparent 62%),
+    var(--ink-900);
+}
+
+.dial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dialSvg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.dialCount {
+  font: 500 10px/1 var(--font-mono);
+  fill: var(--text-low);
+}
+
+.dialTarget {
+  font: 500 9px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  fill: var(--text-low);
+}
+
+.dialScale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding-top: 2px;
+}
+
+.scaleItem,
+.scaleItemEmpty {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+}
+
+.scaleItemEmpty {
+  opacity: 0.55;
+}
+
+.scaleHop {
+  font: 500 10px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+.scaleCount {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-hi);
+}
+
+.dialLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 10px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+.legendDash {
+  width: 10px;
+  height: 1px;
+  border-top: 1px dashed var(--hairline-strong);
+  flex-shrink: 0;
+}
+
+.dialCaption {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-low);
+}
+
+/* -- rings ----------------------------------------------------------------- */
+
+.rings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.ring {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.ringHead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+}
+
+.ringHop {
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--text-hi);
+  opacity: calc(0.55 + 0.45 * var(--ring-strength));
+}
+
+.ringRule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    rgba(233, 174, 88, calc(0.32 * var(--ring-strength))),
+    var(--hairline)
+  );
+}
+
+.ringCount {
+  font: 500 12px/1 var(--font-mono);
+  color: var(--amber);
+}
+
+.ringAdj {
+  font: 400 10px/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.ringRows {
+  display: flex;
+  flex-direction: column;
+}
+
+.rowWrap + .rowWrap {
+  border-top: 1px solid var(--hairline);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto 16px;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 9px var(--sp-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-1);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.row:hover {
+  background: var(--ink-850);
+}
+
+.rowName {
+  font: 500 12px/1.3 var(--font-mono);
+  color: var(--text-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowFile {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--text-low);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.rowCount {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+.weak {
+  padding: 2px 5px;
+  font: 500 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rose);
+  border: 1px solid rgba(224, 108, 117, 0.35);
+  border-radius: var(--r-1);
+}
+
+.rowCaret {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--text-low);
+  text-align: center;
+}
+
+.chain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--sp-2) var(--sp-3) calc(var(--sp-2) + 2px);
+}
+
+.chainPath {
+  font: 400 11px/1.6 var(--font-mono);
+  color: var(--text-mid);
+  overflow-wrap: anywhere;
+  border-left: 1px solid var(--hairline-strong);
+  padding-left: var(--sp-3);
+}
+
+.chainLink {
+  align-self: flex-start;
+  padding: 0;
+  font: 500 10px/1 var(--font-mono);
+  color: var(--text-low);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.chainLink:hover {
+  color: var(--amber);
+}
+
+.more {
+  align-self: flex-start;
+  padding: 4px 0;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--text-low);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.more:hover {
+  color: var(--amber);
+}
+
+/* -- entry point ----------------------------------------------------------- */
+
+.entry {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: center;
+  padding: var(--sp-5);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.entryDial {
+  padding: var(--sp-2);
+}
+
+.entryBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.entryTitle {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 400;
+  color: var(--text-hi);
+}
+
+.entryText {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-mid);
+}
+
+.entryHint {
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  color: var(--text-hi);
+}
+
+/* -- files ----------------------------------------------------------------- */
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.filesHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.sectionLabel {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.sectionNote {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+.fileColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+
+.fileColumn {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+
+.fileColumnHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--hairline);
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-mid);
+}
+
+.fileColumnMeta {
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-low);
+}
+
+.fileEmpty {
+  padding: var(--sp-4);
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+.fileRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 8px var(--sp-4);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.fileRow + .fileRow {
+  border-top: 1px solid var(--hairline);
+}
+
+.fileRow:hover {
+  background: var(--ink-850);
+}
+
+.filePath {
+  font: 400 11px/1.3 var(--font-mono);
+  color: var(--text-mid);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileRow:hover .filePath {
+  color: var(--text-hi);
+}
+
+.fileMeta {
+  flex-shrink: 0;
+  font: 400 10px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+/* -- notes ----------------------------------------------------------------- */
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--hairline);
+}
+
+.note {
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+/* -- gate ------------------------------------------------------------------ */
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-6);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.gateCompact {
+  padding: var(--sp-4);
+  background: transparent;
+  border-color: var(--hairline-strong);
+}
+
+.gateLabel {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.gateInput {
+  width: 100%;
+  padding: 11px var(--sp-4);
+  font: 400 13px/1.2 var(--font-mono);
+  color: var(--text-hi);
+  background: var(--ink-950);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease);
+}
+
+.gateInput::placeholder {
+  color: var(--text-low);
+}
+
+.gateInput:focus {
+  border-color: rgba(233, 174, 88, 0.5);
+}
+
+.gateResults {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.gateRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-4);
+  background: var(--ink-850);
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gateRow + .gateRow {
+  border-top: 1px solid var(--hairline);
+}
+
+.gateRow:hover {
+  background: var(--ink-800);
+}
+
+.gateRowName {
+  font: 500 12px/1.2 var(--font-mono);
+  color: var(--text-hi);
+}
+
+.gateRowMeta {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+.gateOr {
+  margin-top: var(--sp-2);
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+.hubs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+.hub {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px var(--sp-3);
+  background: var(--ink-850);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+
+.hub:hover {
+  border-color: rgba(233, 174, 88, 0.4);
+  background: var(--ink-800);
+}
+
+.hubName {
+  max-width: 100%;
+  font: 500 11px/1.3 var(--font-mono);
+  color: var(--text-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hubMeta {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+/* -- responsive ------------------------------------------------------------ */
+
+@media (max-width: 1080px) {
+  .body,
+  .entry {
+    grid-template-columns: 1fr;
+  }
+
+  .dialPane {
+    position: static;
+    max-width: 340px;
+  }
+
+  .hubs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .impact {
+    padding: var(--sp-6) var(--sp-4) var(--sp-14);
+  }
+
+  .title {
+    font-size: 32px;
+  }
+
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .fileColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto 16px;
+  }
+
+  .rowFile,
+  .rowCount {
+    display: none;
+  }
+
+  .target {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hubs {
+    grid-template-columns: 1fr;
+  }
+}

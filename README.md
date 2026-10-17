@@ -188,9 +188,11 @@ back out of the graph).
 Console v2 is the product's face — a landing page, graph explorer (search,
 module → file → symbol drill-down, caller/callee neighbourhoods with the
 weak-guess filter, directed path finder), an ask room where every answer's
-trace is replayed on the canvas as an induced subgraph, a ⌘K palette, and an
-About page. Built with Vite + React + TypeScript, served as static assets by
-the same stdlib server; console v1 stays archived at `/classic/`.
+trace is replayed on the canvas as an induced subgraph, a bi-temporal memory
+ledger, the three-agent crew view, a commit time machine, a blast-radius
+cone (reverse calls, by hop), a ⌘K palette, and an About page. Built with
+Vite + React + TypeScript, served as static assets by the same stdlib
+server; console v1 stays archived at `/classic/`.
 
 ```bash
 python scripts/serve.py            # -> http://127.0.0.1:8787  (graph repo:flask)

@@ -362,3 +362,64 @@ export interface HistoryResponse {
   notes: string[];
   window?: HistoryWindow;
 }
+
+/** `/api/graph/impact` — the transitive reverse-CALLS cone above one symbol.
+ *  One row per affected symbol at its shortest distance, with the chain that
+ *  reaches the target; files are rolled up server-side (source/test split). */
+export interface ImpactTarget {
+  file: string;
+  qualname: string;
+  name: string;
+  kind: string;
+  lineno: number | null;
+}
+
+export interface ImpactChainRef {
+  file: string;
+  qualname: string;
+}
+
+export interface ImpactSymbol {
+  file: string;
+  qualname: string;
+  name: string;
+  kind: string;
+  /** Call order, caller first, target last. */
+  chain: ImpactChainRef[];
+  /** Per-edge call counts along `chain`, same order. */
+  counts: number[];
+  /** True when any edge in the kept chain was a resolved guess. */
+  weak: boolean;
+}
+
+export interface ImpactLevel {
+  hops: number;
+  symbols: ImpactSymbol[];
+}
+
+export interface ImpactFile {
+  path: string;
+  symbols: number;
+  min_hops: number;
+  tests: boolean;
+}
+
+export interface ImpactSummary {
+  direct_callers: number;
+  transitive_callers: number;
+  affected_files: number;
+  affected_test_files: number;
+  max_hops: number;
+  shown: number;
+  truncated: boolean;
+  walk_capped: boolean;
+}
+
+export interface ImpactResponse {
+  target: ImpactTarget;
+  params: { depth: number; include_weak: boolean; limit: number };
+  summary: ImpactSummary;
+  levels: ImpactLevel[];
+  files: ImpactFile[];
+  notes: string[];
+}

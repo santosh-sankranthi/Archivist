@@ -42,6 +42,12 @@ const ACTIONS: ActionDef[] = [
     to: href("/explorer"),
   },
   {
+    label: "Go to Blast radius",
+    keywords:
+      "impact blast radius what breaks if break callers change risk reverse call cone transitive",
+    to: href("/impact"),
+  },
+  {
     label: "Go to Ask",
     keywords: "question agent trace ribbon cypher",
     to: href("/ask"),
