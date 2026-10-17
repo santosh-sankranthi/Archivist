@@ -77,7 +77,7 @@ export function About({ state, stateError }: Props) {
         <h2 id="about-pipeline" className={styles.h2}>
           The pipeline
         </h2>
-        <ArchDiagram files={files} commits={commits} />
+        <ArchDiagram repo={state?.repo?.name ?? state?.graph ?? "flask"} files={files} commits={commits} />
         <p className={styles.caption}>
           One path in; a single store at the centre. The console, the agent&rsquo;s tools, and
           memory recall all read the same graph — no side databases, no cached copies.
@@ -163,12 +163,25 @@ export function About({ state, stateError }: Props) {
             flag and are surfaced in counts — never guessed silently.
           </li>
           <li>
-            Ask needs a model key, and this demo box has none — captured answers run on
-            scripted scenarios. Explorer and Memory are fully live either way.
+            {state === null ? (
+              <>Ask needs a model key — Explorer and Memory are fully live either way.</>
+            ) : state.llm.configured ? (
+              <>
+                Ask runs on this box&rsquo;s model,{" "}
+                <code>{state.llm.model ?? "model set"}</code> — and visitors may bring
+                their own key. Explorer and Memory are fully live either way.
+              </>
+            ) : (
+              <>
+                Ask needs a model key, and this demo box has none — captured answers run
+                on scripted scenarios, and visitors may bring their own key. Explorer and
+                Memory are fully live either way.
+              </>
+            )}
           </li>
           <li>
-            One repository per graph (<code>repo:flask</code> here): multi-tenant by design,
-            single-repo by scope.
+            One repository per graph (<code>{state?.graph ?? "repo:flask"}</code> here):
+            multi-tenant by design, single-repo by scope.
           </li>
         </ul>
       </section>
@@ -193,7 +206,15 @@ export function About({ state, stateError }: Props) {
 /** The pipeline diagram — inline SVG, drawn to the Ink & Signal tokens.
  *  Restrained on purpose: hairlines for flow, amber only where the store
  *  sits, mono labels like a schematic. */
-function ArchDiagram({ files, commits }: { files: number | null; commits: number | null }) {
+function ArchDiagram({
+  repo,
+  files,
+  commits,
+}: {
+  repo: string;
+  files: number | null;
+  commits: number | null;
+}) {
   const chip = { h: 22, textDy: 15 };
   function Chip({
     x,
@@ -256,7 +277,7 @@ function ArchDiagram({ files, commits }: { files: number | null; commits: number
         codebase
       </text>
       <text className={styles.dgValue} x={16} y={70}>
-        flask — {files === null ? "…" : `${formatInt(files)} files`}
+        {repo} — {files === null ? "…" : `${formatInt(files)} files`}
       </text>
       <text className={styles.dgSub} x={16} y={102}>
         git history
