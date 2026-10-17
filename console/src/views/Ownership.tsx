@@ -153,6 +153,9 @@ function Gate() {
         autoComplete="off"
         spellCheck={false}
       />
+      {text.trim().length > 0 && !searching ? (
+        <p className={styles.gateHint}>Type at least 2 characters to search.</p>
+      ) : null}
       {searching ? (
         <div className={styles.gateResults}>
           {find.loading && !find.data ? (

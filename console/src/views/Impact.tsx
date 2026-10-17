@@ -257,6 +257,9 @@ function Gate({ compact = false }: { compact?: boolean }) {
         autoComplete="off"
         spellCheck={false}
       />
+      {text.trim().length > 0 && !searching ? (
+        <p className={styles.gateHint}>Type at least 2 characters to search.</p>
+      ) : null}
       {searching ? (
         <div className={styles.gateResults}>
           {find.loading && hits.length === 0 ? (
@@ -296,7 +299,9 @@ function Gate({ compact = false }: { compact?: boolean }) {
                   navigate(href("/impact", { symbol: hub.qualname, file: hub.file }))
                 }
               >
-                <span className={styles.hubName}>{hub.qualname}</span>
+                <span className={styles.hubName} title={hub.qualname}>
+                  {hub.qualname}
+                </span>
                 <span className={styles.hubMeta}>
                   {formatInt(hub.callers)} callers · {fileTail(hub.file)}
                 </span>
