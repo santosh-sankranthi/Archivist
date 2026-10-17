@@ -13,10 +13,12 @@ interface Props {
   state: GraphState | null;
   stateError: string | null;
   overview: Overview | null;
+  overviewError: string | null;
+  onRetryOverview: () => void;
 }
 
 /** Home: hero ask line, live stat strip, hubs, recent commits, starters. */
-export function Home({ state, stateError, overview }: Props) {
+export function Home({ state, stateError, overview, overviewError, onRetryOverview }: Props) {
   const activity = useApi<Activity>("/api/graph/activity");
   const [draft, setDraft] = useState("");
 
@@ -40,14 +42,19 @@ export function Home({ state, stateError, overview }: Props) {
     navigate(href("/ask", { q: question }));
   }
 
+  // The intro names the graph's actual repository when known, and the
+  // capability when it isn't — never a hardcoded repo that lies the moment
+  // the demo graph points elsewhere (audit #2).
+  const repoName = state?.repo?.name?.trim();
+  const heroSub = repoName
+    ? `${repoName}\u2019s code, commits, and memory \u2014 one graph. Every answer shows its path.`
+    : "Your repo\u2019s code, commits, and memory \u2014 one graph. Every answer shows its path.";
+
   return (
     <div className={styles.home}>
       <section className={styles.hero}>
         <h1 className={styles.heroTitle}>Ask the archive.</h1>
-        <p className={styles.heroSub}>
-          Flask&rsquo;s code, commits, and memory — one graph. Every answer
-          shows its path.
-        </p>
+        <p className={styles.heroSub}>{heroSub}</p>
         <form className={styles.askRow} onSubmit={ask}>
           <input
             className={styles.askInput}
@@ -102,6 +109,14 @@ export function Home({ state, stateError, overview }: Props) {
             called and imported, live from the graph
           </span>
         </div>
+        {overviewError && !overview ? (
+          <p className={styles.loading}>
+            graph overview unavailable — search still works.{" "}
+            <button type="button" className={styles.retry} onClick={onRetryOverview}>
+              retry
+            </button>
+          </p>
+        ) : null}
         <div className={styles.hubs}>
           <div className={styles.card}>
             <div className={styles.cardHead}>

@@ -201,6 +201,23 @@
   font-size: 13px;
 }
 
+.retry {
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--hairline-strong);
+  background: none;
+  color: var(--amber);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.retry:hover {
+  color: var(--amber-hover);
+}
+
 /* -- cards ----------------------------------------------------------------- */
 
 .hubs {
