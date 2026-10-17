@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
@@ -339,21 +340,52 @@ class Agent:
             return {"role": "system", "content": self.system_prompt}
         return {"role": "system", "content": SYSTEM_PROMPT.format(repo=self.repo_label)}
 
-    def ask(self, question: str) -> Answer:
-        """Run one question through the tool-calling loop."""
+    def ask(
+        self,
+        question: str,
+        on_event: Callable[[dict], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Answer:
+        """Run one question through the tool-calling loop.
+
+        ``on_event`` turns the run into a live feed: ``step_start`` and
+        ``step_result`` fire at each tool boundary, and streamed answer
+        fragments surface as ``answer_delta`` events. ``cancel`` is polled
+        between steps: an aborted run starts no new work, marks itself
+        partial, and still returns an :class:`Answer` — so the caller's
+        bookkeeping (episode recording) stays honest about what happened.
+        """
         answer = Answer(question=question, text="")
+        emit = on_event
         messages: list[dict] = [
             self.system_message(),
             {"role": "user", "content": question},
         ]
+        stopped = False
+
+        delta_cb: Callable[[str], None] | None = None
+        if emit is not None:
+
+            def _forward(text: str) -> None:
+                emit({"type": "answer_delta", "text": text})
+
+            delta_cb = _forward
+
+        def cancelled() -> bool:
+            return bool(cancel()) if cancel is not None else False
+
         for round_ in range(self.max_steps + 1):
+            if cancelled():
+                stopped = True
+                break
             finalizing = round_ == self.max_steps
             if finalizing:
                 messages.append({"role": "system", "content": FINALIZE_NUDGE})
             try:
-                response = self.llm.chat(
-                    messages, tools=None if finalizing else self.schemas
-                )
+                kwargs: dict = {"tools": None if finalizing else self.schemas}
+                if delta_cb is not None:
+                    kwargs["on_delta"] = delta_cb
+                response = self.llm.chat(messages, **kwargs)
             except LLMError as exc:
                 answer.error = str(exc)
                 answer.text = f"(LLM failure: {exc})"
@@ -363,11 +395,39 @@ class Agent:
             if response.tool_calls and not finalizing:
                 messages.append(self._assistant_message(response))
                 for call in response.tool_calls:
+                    if cancelled():
+                        stopped = True
+                        break
+                    index = len(answer.steps)
+                    if emit is not None:
+                        emit(
+                            {
+                                "type": "step_start",
+                                "i": index,
+                                "tool": call.name,
+                                "args": call.arguments or {},
+                            }
+                        )
                     payload, step = self._execute(call, round_, answer)
                     answer.steps.append(step)
+                    if emit is not None:
+                        emit(
+                            {
+                                "type": "step_result",
+                                "i": index,
+                                "tool": step["tool"],
+                                "status": step["status"],
+                                "count": step["count"],
+                                "ms": step["ms"],
+                                "notes": step["notes"][:3],
+                                "error": step["error"],
+                            }
+                        )
                     messages.append(
                         {"role": "tool", "tool_call_id": call.id, "content": payload}
                     )
+                if stopped:
+                    break
             else:
                 content = response.content
                 text = content.strip() if isinstance(content, str) else ""
@@ -379,6 +439,12 @@ class Agent:
                     answer.partial = True
                     answer.error = answer.error or "empty response from model"
                 break
+        if stopped:
+            answer.partial = True
+            answer.error = answer.error or "client disconnected mid-stream"
+            answer.text = (
+                answer.text or "(no answer produced — the client disconnected)"
+            )
         answer.usage = dict(getattr(self.llm, "usage", {}) or {})
         return answer
 

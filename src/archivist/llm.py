@@ -19,6 +19,13 @@ fallbacks so plain OpenAI setups work with no extra configuration.
 Transient failures (429/5xx, timeouts, dropped connections) are retried up
 to ``ChatLLM.retries`` times with a small backoff (``Retry-After`` honoured
 when present); everything else fails fast as :class:`LLMError`.
+
+``chat(..., on_delta=fn)`` switches the call to server-sent-event streaming:
+content deltas are replayed through ``fn`` as they arrive, and tool calls
+are re-assembled from their fragments (one accumulator per ``index``) back
+into the plain response shape. Providers that ignore the ``stream`` flag and
+answer with plain JSON fall back transparently — the whole content is then
+surfaced as a single delta rather than going silent.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -143,6 +151,95 @@ def _parse_tool_call(raw: dict) -> ToolCall:
     return call
 
 
+def _read_sse(response, on_delta, sent: list[bool]) -> dict:
+    """Assemble an SSE completion into the plain-response shape.
+
+    OpenAI-compatible streams carry content deltas and tool-call fragments
+    (split by ``index``); reassembling both here keeps the rest of the
+    client identical for streamed and non-streamed calls. Comment frames
+    (``: ping``), unknown fields and malformed data lines are skipped —
+    provider keepalive noise must never kill a live stream. ``sent[0]`` is
+    set the moment the first delta is forwarded so the retry logic knows a
+    mid-stream failure cannot be replayed.
+    """
+    content_parts: list[str] = []
+    calls: dict[int, dict] = {}
+    usage: dict[str, int] = {}
+    finish: str | None = None
+    frames = 0
+    done = False
+    for raw in response:
+        line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+        if not line or line.startswith(":") or not line.startswith("data:"):
+            continue
+        blob = line[5:].strip()
+        if blob == "[DONE]":
+            done = True
+            break
+        try:
+            obj = json.loads(blob)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        frames += 1
+        if isinstance(obj.get("usage"), dict):
+            for key, value in obj["usage"].items():
+                if isinstance(value, int):
+                    usage[key] = usage.get(key, 0) + value
+        choices = obj.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices else {}
+        choice = choice if isinstance(choice, dict) else {}
+        if choice.get("finish_reason"):
+            finish = str(choice["finish_reason"])
+        delta = choice.get("delta")
+        delta = delta if isinstance(delta, dict) else {}
+        content = delta.get("content")
+        if isinstance(content, list):  # some servers send content as parts
+            content = "".join(
+                part.get("text") or "" for part in content if isinstance(part, dict)
+            )
+        if isinstance(content, str) and content:
+            content_parts.append(content)
+            sent[0] = True
+            on_delta(content)
+        for item in delta.get("tool_calls") or []:
+            if not isinstance(item, dict):
+                continue
+            index = item.get("index")
+            index = index if isinstance(index, int) else 0
+            slot = calls.setdefault(index, {"id": None, "name": "", "arguments": ""})
+            if item.get("id"):
+                slot["id"] = str(item["id"])
+            fn = item.get("function")
+            fn = fn if isinstance(fn, dict) else {}
+            if fn.get("name"):
+                slot["name"] += str(fn["name"])
+            if isinstance(fn.get("arguments"), str):
+                slot["arguments"] += fn["arguments"]
+    message: dict = {}
+    content = "".join(content_parts)
+    if content:
+        message["content"] = content
+    if calls:
+        message["tool_calls"] = [
+            {
+                "id": slot["id"] or f"call_{index}",
+                "type": "function",
+                "function": {
+                    "name": slot["name"],
+                    "arguments": slot["arguments"] or "{}",
+                },
+            }
+            for index, slot in sorted(calls.items())
+        ]
+    return {
+        "choices": [{"message": message, "finish_reason": finish}],
+        "usage": usage,
+        "streamed": {"frames": frames, "done": done},
+    }
+
+
 class ChatLLM:
     """Small OpenAI-compatible client with per-call accounting."""
 
@@ -192,12 +289,17 @@ class ChatLLM:
         messages: list[dict],
         tools: list[dict] | None = None,
         tool_choice: str = "auto",
+        on_delta: Callable[[str], None] | None = None,
     ) -> LLMResponse:
         """One chat completion round. Raises :class:`LLMError` on failure.
 
-        Transient failures (429/5xx, network timeouts, dropped connections)
-        get up to ``self.retries`` retries with a small backoff, so one blip
-        does not lose the whole question.
+        With ``on_delta`` the call streams (``stream: true``): content
+        fragments are replayed to the callback as they arrive and tool
+        calls are re-assembled by index. Transient failures (429/5xx,
+        network timeouts, dropped connections) get up to ``self.retries``
+        retries with a small backoff, so one blip does not lose the whole
+        question — unless deltas were already forwarded, in which case a
+        retry would duplicate them and the failure is raised instead.
         """
         if not self.model:
             raise LLMError(
@@ -211,6 +313,8 @@ class ChatLLM:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = tool_choice
+        if on_delta is not None:
+            payload["stream"] = True
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode(),
@@ -220,12 +324,24 @@ class ChatLLM:
             request.add_header(name, value)
         data: dict = {}
         attempt = 0
+        sent = [False]  # a delta already forwarded for the current attempt
         while True:  # bounded: continue only while attempt <= self.retries
             attempt += 1
+            sent[0] = False
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    body = response.read()
-                data = _decode_body(body, self.base_url)
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+                    if on_delta is not None and "text/event-stream" in content_type:
+                        data = _read_sse(response, on_delta, sent)
+                    else:
+                        data = _decode_body(response.read(), self.base_url)
+                        if on_delta is not None:
+                            # The provider ignored `stream` — surface the whole
+                            # content as one delta rather than going silent.
+                            content = _message_from(data).get("content")
+                            if isinstance(content, str) and content:
+                                sent[0] = True
+                                on_delta(content)
                 break
             except urllib.error.HTTPError as exc:
                 snippet = exc.read().decode(errors="replace")[:300]
@@ -237,7 +353,9 @@ class ChatLLM:
                 ) from exc
             except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
                 reason = getattr(exc, "reason", None) or exc
-                if attempt <= self.retries:
+                # A mid-stream failure cannot be replayed: deltas already
+                # reached the caller, so retrying would duplicate them.
+                if attempt <= self.retries and not sent[0]:
                     self._backoff(attempt, None)
                     continue
                 raise LLMError(f"cannot reach {self.base_url}: {reason}") from exc

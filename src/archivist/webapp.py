@@ -35,13 +35,17 @@ Endpoints:
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
+    POST /api/ask/stream       the same run as Server-Sent Events (live steps
+                               and streamed answer deltas; done/error terminal)
     POST /api/llm/test         try one request's LLM settings (tiny completion)
 
 Visitors may bring their own LLM key: the ``X-Archivist-LLM-Base|Model|Key``
 request headers override the server's settings for that one request. The
 server never stores or logs the key. Asks that spend the *server's* demo
 key are capped per client (:data:`DEMO_QUOTA_DEFAULT` per hour; 429 past
-the cap, with a hint to bring a key).
+the cap, with a hint to bring a key). ``/api/ask/stream`` streams the same
+run as SSE frames and heartbeats while the queue is quiet, so long steps
+never look dead through the tunnel.
 
 The server is bounded: at most ``MAX_INFLIGHT`` requests are served at once,
 so the console can face a tunnel (M5) without turning a burst of stalled
@@ -53,6 +57,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -172,6 +177,10 @@ DEMO_QUOTA_WINDOW = 3600.0
 # "Test key" probe: one tiny completion, modest per-client rate.
 LLM_TEST_LIMIT = 6
 LLM_TEST_WINDOW = 600.0
+# SSE streams (M7b): live asks. The handler heartbeats on a quiet queue so a
+# long step never looks dead through the tunnel; when a client goes away the
+# write fails, the abort flag is set, and the producer stops between steps.
+STREAM_HEARTBEAT = 10.0
 
 # Honest error codes per status: a refusal is not a "bad request", and a
 # missing key is not a client error (REVIEW-M4a F5).
@@ -535,6 +544,74 @@ def _month_buckets(rows) -> list[dict]:
     return filled
 
 
+_FINAL = object()  # queue sentinel: the producer thread has finished
+
+
+def _sse_frame(event: str, data: dict) -> bytes:
+    """One Server-Sent Event: named event + JSON data + blank-line terminator."""
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode()
+
+
+class StreamResponse:
+    """A streaming (SSE) response: a queue of byte frames + an abort flag.
+
+    The producer runs on its own daemon thread: it executes the ask and puts
+    pre-framed SSE bytes on the queue (unbounded — the handler drains it as
+    fast as the socket allows). The HTTP handler writes whatever arrives and
+    emits ``: ping`` heartbeats when the queue stays quiet. If a write fails
+    the handler sets :attr:`abort`; the producer polls it between steps and
+    winds down cooperatively — its cleanup (episode bookkeeping, connections)
+    still runs, so an abandoned stream never leaves a half-written record.
+    """
+
+    def __init__(self, producer, *, heartbeat: float = STREAM_HEARTBEAT):
+        self.status = 200
+        self.content_type = "text/event-stream; charset=utf-8"
+        self.heartbeat = heartbeat
+        self.abort = threading.Event()
+        self.queue: queue.Queue = queue.Queue()
+        self._producer = producer
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def join(self, timeout: float | None = None) -> None:
+        if self._thread is not None:
+            self._thread.join(timeout)
+
+    def _run(self) -> None:
+        try:
+            self._producer(self.abort, self.queue)
+        except Exception as exc:  # noqa: BLE001 - the frame is the contract
+            self.queue.put(
+                _sse_frame("error", {"message": f"{type(exc).__name__}: {exc}"[:500]})
+            )
+        finally:
+            self.queue.put(_FINAL)
+
+
+@dataclass
+class _AskSetup:
+    """Validated request state shared by /api/ask and /api/ask/stream.
+
+    Everything the run needs is resolved while the request thread still owns
+    its context (graph resolution, BYO overrides, quota gate); the streaming
+    producer thread then works from plain captured values only.
+    """
+
+    question: str
+    max_steps: int
+    remember: bool
+    warnings: list[str]
+    overrides: dict
+    llm: object
+    graph: str
+
+
 class WebApp:
     """Request routing over one repo graph. One instance per server."""
 
@@ -759,7 +836,7 @@ class WebApp:
         query: dict,
         body: dict,
         ctx: RequestContext | None = None,
-    ) -> tuple[int, str, bytes]:
+    ) -> tuple[int, str, bytes] | StreamResponse:
         ctx = ctx or RequestContext()
         try:
             self._enter(ctx, path, query)
@@ -813,6 +890,8 @@ class WebApp:
                     return self._json(200, self._cypher(body))
                 if path == "/api/ask":
                     return self._json(200, self._ask(body))
+                if path == "/api/ask/stream":
+                    return self._ask_stream(body)
                 if path == "/api/llm/test":
                     return self._json(200, self._llm_test(ctx))
             return self._json(
@@ -2923,7 +3002,14 @@ class WebApp:
         payload.update({"count": len(result.result_set), "scalars": scalars[:100]})
         return payload
 
-    def _ask(self, body: dict) -> dict:
+    # -- ask + ask/stream --------------------------------------------------
+
+    def _ask_prelude(self, body: dict) -> _AskSetup:
+        """Validate one ask and resolve everything request-scoped up front.
+
+        Shared by the blocking endpoint and the SSE stream, so both refuse
+        identically (400/503/429 as plain JSON) before any stream starts.
+        """
         question = body.get("question")
         if not isinstance(question, str) or not question.strip():
             raise ApiError(400, 'pass {"question": "..."}')
@@ -2962,10 +3048,33 @@ class WebApp:
                 )
             raise ApiError(503, LLM_HINT)
         self._demo_quota_gate(ctx, overrides)
-        repo = RepoGraph(graph=self.graph, host=self.host, port=self.port)
+        return _AskSetup(
+            question=question,
+            max_steps=max_steps,
+            remember=remember,
+            warnings=warnings,
+            overrides=overrides,
+            llm=llm,
+            graph=self.graph,
+        )
+
+    def _run_ask(
+        self,
+        setup: _AskSetup,
+        *,
+        on_event: Callable[[dict], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> dict:
+        """Execute one ask: episode bookkeeping, agent loop, finalize.
+
+        Works on captured plain values only, so it can run on the stream's
+        producer thread as well as on the request thread — the graph name
+        comes from ``setup``, never from thread-locals.
+        """
+        repo = RepoGraph(graph=setup.graph, host=self.host, port=self.port)
         memory = (
-            Memory(graph=self.graph, host=self.host, port=self.port)
-            if remember
+            Memory(graph=setup.graph, host=self.host, port=self.port)
+            if setup.remember
             else None
         )
         try:
@@ -2978,16 +3087,20 @@ class WebApp:
                     episode_id = memory.record_episode(
                         kind="agent-session",
                         source="webapp",
-                        question=question,
-                        graph=self.graph,
-                        model=llm.model,
+                        question=setup.question,
+                        graph=setup.graph,
+                        model=setup.llm.model,
                         head=rows[0].get("head"),
                     )
                 except Exception as exc:  # noqa: BLE001 - memory writes are best-effort
-                    warnings.append(f"memory write failed: {exc}")
+                    setup.warnings.append(f"memory write failed: {exc}")
             answer = Agent(
-                repo, llm, max_steps=max_steps, memory=memory, episode_id=episode_id
-            ).ask(question)
+                repo,
+                setup.llm,
+                max_steps=setup.max_steps,
+                memory=memory,
+                episode_id=episode_id,
+            ).ask(setup.question, on_event=on_event, cancel=cancel)
             if memory is not None and episode_id is not None:
                 try:
                     memory.record_episode(
@@ -3000,18 +3113,52 @@ class WebApp:
                         queries=len(answer.queries),
                     )
                 except Exception as exc:  # noqa: BLE001
-                    warnings.append(f"memory write failed: {exc}")
+                    setup.warnings.append(f"memory write failed: {exc}")
                     episode_id = None
             return {
                 "configured": True,
                 "answer": answer.to_dict(),
                 "episode_id": episode_id,
-                "warnings": warnings,
+                "warnings": setup.warnings,
             }
         finally:
             repo.close()
             if memory is not None:
                 memory.close()
+
+    def _ask(self, body: dict) -> dict:
+        return self._run_ask(self._ask_prelude(body))
+
+    def _ask_stream(self, body: dict) -> StreamResponse:
+        """POST /api/ask/stream: the same run, as Server-Sent Events.
+
+        Validation and quota happen now, on the request thread — refusals
+        stay ordinary JSON errors (the console falls back to /api/ask and
+        shows the message). The producer thread then streams ``step_start``
+        / ``step_result`` / ``answer_delta`` frames and a terminal ``done``
+        carrying the full Answer (trace included). A failure that prevents
+        an Answer at all is a terminal ``error``.
+        """
+        setup = self._ask_prelude(body)
+
+        def produce(abort: threading.Event, out: queue.Queue) -> None:
+            def emit(event: dict) -> None:
+                topic = str(event.get("type") or "message")
+                payload = {k: v for k, v in event.items() if k != "type"}
+                out.put(_sse_frame(topic, payload))
+
+            try:
+                result = self._run_ask(setup, on_event=emit, cancel=abort.is_set)
+            except Exception as exc:  # noqa: BLE001 — terminal, honest
+                out.put(
+                    _sse_frame(
+                        "error", {"message": f"{type(exc).__name__}: {exc}"[:500]}
+                    )
+                )
+                return
+            out.put(_sse_frame("done", result))
+
+        return StreamResponse(produce)
 
     # -- BYO keys + demo quota (M7) ----------------------------------------
 
@@ -3306,11 +3453,11 @@ def make_server(
                     secure=(self.headers.get("X-Forwarded-Proto") or "").lower()
                     == "https",
                 )
-                status, content_type, payload = app.dispatch(
+                result: tuple[int, str, bytes] | StreamResponse = app.dispatch(
                     method, split.path, parse_qs(split.query), body, ctx=ctx
                 )
             except ApiError as exc:
-                status, content_type, payload = WebApp._json(
+                result = WebApp._json(
                     exc.status,
                     {
                         "error": exc.code or _ERROR_CODES.get(exc.status, "error"),
@@ -3318,7 +3465,7 @@ def make_server(
                     },
                 )
             except (ValueError, json.JSONDecodeError) as exc:
-                status, content_type, payload = WebApp._json(
+                result = WebApp._json(
                     400, {"error": "bad_request", "message": f"bad request: {exc}"}
                 )
             extra_headers = app.take_headers()
@@ -3338,6 +3485,10 @@ def make_server(
                         ),
                     )
                 )
+            if isinstance(result, StreamResponse):
+                self._serve_stream(result, extra_headers)
+                return
+            status, content_type, payload = result
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
@@ -3349,6 +3500,52 @@ def make_server(
                 self.wfile.write(payload)
             if close_after:
                 self.close_connection = True
+
+        def _serve_stream(
+            self, resp: StreamResponse, extra_headers: list[tuple[str, str]]
+        ) -> None:
+            """Write an SSE response chunk by chunk, heartbeating while quiet.
+
+            A failed write means the client went away: set ``resp.abort`` and
+            stop writing. The producer checks the flag between steps and
+            winds down on its own (its bookkeeping still runs); nothing here
+            waits on the in-flight upstream call.
+            """
+            chunked = self.request_version == "HTTP/1.1"
+            self.close_connection = True
+            self.send_response(resp.status)
+            self.send_header("Content-Type", resp.content_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Connection", "close")
+            if chunked:
+                self.send_header("Transfer-Encoding", "chunked")
+            for name, value in extra_headers:
+                self.send_header(name, value)
+            self.end_headers()
+            resp.start()  # after the headers: a client gone this early costs no LLM call
+
+            def write(data: bytes) -> None:
+                if chunked:
+                    self.wfile.write(f"{len(data):X}\r\n".encode() + data + b"\r\n")
+                else:
+                    self.wfile.write(data)
+                self.wfile.flush()
+
+            try:
+                while True:
+                    try:
+                        item = resp.queue.get(timeout=resp.heartbeat)
+                    except queue.Empty:
+                        item = b": ping\n\n"
+                    if item is _FINAL:
+                        break
+                    write(item)
+                if chunked:
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+            except OSError:
+                resp.abort.set()  # client disconnected: cooperative stop
 
         def log_message(self, format: str, *args) -> None:
             if os.environ.get("ARCHIVIST_WEB_LOG"):

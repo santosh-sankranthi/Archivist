@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,28 @@ load_dotenv(ROOT / ".env")
 from archivist.accounts import AccountStore
 from archivist.llm import LLMResponse, ToolCall
 from archivist.webapp import WebApp, make_server
+
+
+def _split_demo_chunks(text: str, pieces: int = 5) -> list[str]:
+    """Split scripted content into mock-streaming pieces at word boundaries.
+
+    Only the *pacing* is simulated — the text itself is exactly what the
+    scenario file says; captures get a visible type-out instead of one blob.
+    """
+    if len(text) <= 24:
+        return [text]
+    size = max(1, len(text) // pieces)
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + size)
+        if end < len(text):
+            space = text.find(" ", end)
+            if space != -1 and space - end < 24:
+                end = space + 1
+        chunks.append(text[start:end])
+        start = end
+    return chunks
 
 
 class ScriptedLLM:
@@ -59,7 +82,7 @@ class ScriptedLLM:
     def is_configured(self) -> bool:
         return True
 
-    def chat(self, messages, tools=None):
+    def chat(self, messages, tools=None, on_delta=None):
         if self._script is None:
             index = self._cursor["i"]
             self._script = (
@@ -87,7 +110,14 @@ class ScriptedLLM:
                     arguments=args,
                 )
             )
-        return LLMResponse(content=item.get("content"), tool_calls=calls)
+        content = item.get("content")
+        if on_delta is not None and isinstance(content, str) and content:
+            chunks = _split_demo_chunks(content)
+            for position, chunk in enumerate(chunks):
+                on_delta(chunk)
+                if position + 1 < len(chunks):
+                    time.sleep(0.05)  # visible type-out in captures
+        return LLMResponse(content=content, tool_calls=calls)
 
 
 def scripted_factory(scenarios: list[list[dict]]):

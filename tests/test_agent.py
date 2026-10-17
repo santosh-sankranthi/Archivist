@@ -251,3 +251,86 @@ def test_large_payloads_are_truncated_for_context(
     assert step["count"] == 60
     assert len(step["result"]["results"]) == 40
     assert any("truncated 60 rows to 40" in note for note in step["result"]["notes"])
+
+
+class StreamingLLM:
+    """Scripted responses that also push content through ``on_delta``."""
+
+    def __init__(self, script: list[LLMResponse]):
+        self.script = list(script)
+        self.calls = 0
+        self.usage: dict[str, int] = {}
+
+    def chat(self, messages, tools=None, tool_choice="auto", on_delta=None):
+        self.calls += 1
+        response = self.script.pop(0)
+        content = response.content
+        if on_delta is not None and isinstance(content, str) and content:
+            half = max(1, len(content) // 2)
+            for piece in (content[:half], content[half:]):
+                if piece:
+                    on_delta(piece)
+        return response
+
+
+def test_ask_emits_step_and_delta_events(chain_repo, falkordb_or_skip, temp_graph):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    llm = StreamingLLM(
+        [
+            tool_call("overview", {}, call_id="a"),
+            text_response("helper lives in util.py, called from app.main."),
+        ]
+    )
+    events: list[dict] = []
+    answer = Agent(repo, llm, max_steps=5).ask(
+        "where is helper?", on_event=events.append
+    )
+    kinds = [event["type"] for event in events]
+    assert kinds == ["step_start", "step_result", "answer_delta", "answer_delta"]
+    start, result = events[0], events[1]
+    assert start == {"type": "step_start", "i": 0, "tool": "overview", "args": {}}
+    assert result["i"] == 0 and result["status"] == "ok" and result["ms"] >= 0
+    assert "".join(event["text"] for event in events[2:]) == (
+        "helper lives in util.py, called from app.main."
+    )
+    assert answer.text == "helper lives in util.py, called from app.main."
+    assert answer.partial is False
+
+
+def test_ask_cancel_between_steps_stops_the_loop(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    flag = {"stop": False}
+
+    class CancellingLLM:
+        def __init__(self):
+            self.calls = 0
+            self.usage: dict[str, int] = {}
+
+        def chat(self, messages, tools=None, tool_choice="auto", on_delta=None):
+            self.calls += 1
+            flag["stop"] = True  # the abort lands while this call is in flight
+            return tool_call("overview", {}, call_id="a")
+
+    llm = CancellingLLM()
+    events: list[dict] = []
+    answer = Agent(repo, llm, max_steps=5).ask(
+        "where is helper?", on_event=events.append, cancel=lambda: flag["stop"]
+    )
+    assert llm.calls == 1  # the in-flight round completed; nothing new started
+    assert events == []  # the tool never ran
+    assert answer.steps == []
+    assert answer.partial is True
+    assert "disconnected" in (answer.error or "")
+
+
+def test_ask_cancel_before_start_makes_no_calls(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    llm = ScriptedLLM([])  # any call would blow up on an empty script
+    answer = Agent(repo, llm, max_steps=5).ask("q", cancel=lambda: True)
+    assert llm.requests == []
+    assert answer.llm_calls == 0
+    assert answer.partial is True
