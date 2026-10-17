@@ -263,6 +263,40 @@ export interface MemoryResponse {
   notes: string[];
 }
 
+/** `/api/graph/actions` — the agent's recorded next steps, proposed first. */
+export interface ActionRef {
+  kind: string;
+  label: string | null;
+}
+
+export interface ActionItem {
+  id: string;
+  summary: string;
+  type: string | null;
+  status: "proposed" | "done" | "superseded";
+  targets: Record<string, unknown>[];
+  evidence: Record<string, unknown>[];
+  episode_id: string | null;
+  supersedes: string[];
+  created_at: number | null;
+  refs: ActionRef[];
+}
+
+export interface ActionCounts {
+  total: number;
+  proposed: number;
+  done: number;
+  superseded: number;
+}
+
+export interface ActionsResponse {
+  graph: string;
+  status: string | null;
+  counts: ActionCounts;
+  actions: ActionItem[];
+  notes: string[];
+}
+
 /** `/api/graph/crew` — crew runs as graph state: one phase episode per
  *  role, grouped into runs, handoff notes read back from
  *  `(:Episode)-[:HANDOFF]->(:Episode)` edges. `status` is honest: only a

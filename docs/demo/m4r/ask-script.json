@@ -4,6 +4,7 @@
     [
       {"tool_calls": [{"name": "callers", "arguments": {"symbol": "url_for", "depth": 1}}]},
       {"tool_calls": [{"name": "file_history", "arguments": {"path": "src/flask/helpers.py", "limit": 5}}]},
+      {"tool_calls": [{"name": "act", "arguments": {"type": "test", "summary": "Add a regression test for url_for's public signature", "targets": [{"kind": "symbol", "file": "src/flask/helpers.py", "qualname": "url_for"}], "evidence": [{"kind": "symbol", "file": "src/flask/helpers.py", "qualname": "url_for"}]}}]},
       {"content": "25 callers, all within one hop: 12 in tests/test_basic.py, 4 in the tutorial's auth.py, and 9 more across blog.py and two other test modules. Nothing under src/flask calls url_for internally — its blast radius is the public contract itself, so the examples and the test suite break first.\n\nhelpers.py itself keeps moving (latest: \"drop support for Python 3.10\"), but url_for's call surface is small and stable."}
     ],
     [

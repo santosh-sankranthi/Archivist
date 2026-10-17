@@ -20,6 +20,7 @@ import {
 import { EASE_OUT, prefersReducedMotion } from "../lib/motion";
 import { href, navigate, useLocation } from "../lib/router";
 import type {
+  ActionsResponse,
   MemoryChainFact,
   MemoryEpisode,
   MemoryFact,
@@ -51,6 +52,7 @@ export function Memory() {
         ? "/api/graph/memory?history=1"
         : "/api/graph/memory";
   const mem = useApi<MemoryResponse>(path);
+  const actions = useApi<ActionsResponse>("/api/graph/actions");
 
   // Timeline domain: widened across fetches so bars and the marker never
   // jump when the mode changes (see lib/memory).
@@ -94,6 +96,8 @@ export function Memory() {
           <Stat value={data.counts.handoff_edges} label="Handoffs" />
         </section>
       ) : null}
+
+      <ActionsSection data={actions.data} error={actions.error} />
 
       <section className={styles.scrubber} aria-label="Timeline scrubber">
         <div className={styles.scrubberHead}>
@@ -260,6 +264,115 @@ function Stat({ value, label }: { value: number; label: string }) {
       <span className={styles.statValue}>{formatInt(value)}</span>
       <span className={styles.statLabel}>{label}</span>
     </div>
+  );
+}
+
+function ActionsSection({
+  data,
+  error,
+}: {
+  data: ActionsResponse | null;
+  error: { message: string } | null;
+}) {
+  if (error) {
+    return (
+      <section className={styles.section} aria-label="Actions">
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionLabel}>Actions</h2>
+        </div>
+        <p className={styles.loadingError}>{error.message}</p>
+      </section>
+    );
+  }
+  if (!data) {
+    return (
+      <section className={styles.section} aria-label="Actions">
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionLabel}>Actions</h2>
+        </div>
+        <p className={styles.loading}>reading actions…</p>
+      </section>
+    );
+  }
+  const items = data.actions;
+  return (
+    <section className={styles.section} aria-label="Actions">
+      <div className={styles.sectionHead}>
+        <h2 className={styles.sectionLabel}>Actions</h2>
+        <span className={styles.sectionNote}>
+          the agent's recorded next steps — {data.counts.proposed} proposed ·{" "}
+          {data.counts.done} done · {data.counts.superseded} superseded
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <p className={styles.loading}>
+          no actions recorded yet — ask a question and the agent may propose a
+          next step
+        </p>
+      ) : (
+        <div className={styles.actionList}>
+          {items.map((action) => (
+            <div
+              key={action.id}
+              className={styles.action}
+              data-status={action.status}
+            >
+              <div className={styles.actionHead}>
+                <span className={`${styles.actionType} ${styles[`type_${action.type}`]}`}>
+                  {action.type ?? "action"}
+                </span>
+                <span className={styles.actionStatus}>{action.status}</span>
+                <p className={styles.actionSummary}>{action.summary}</p>
+              </div>
+              <div className={styles.actionMeta}>
+                {action.refs.map((ref, i) =>
+                  ref.kind === "File" && ref.label ? (
+                    <button
+                      key={`${ref.kind}:${ref.label}:${i}`}
+                      type="button"
+                      className={`${styles.ref} ${styles.refLink}`}
+                      title={`open ${ref.label} in the Explorer`}
+                      onClick={() =>
+                        navigate(href("/explorer", { path: ref.label! }))
+                      }
+                    >
+                      {ref.label}
+                    </button>
+                  ) : (
+                    <span key={`${ref.kind}:${ref.label}:${i}`} className={styles.ref}>
+                      {ref.label ?? ref.kind}
+                    </span>
+                  ),
+                )}
+                {action.episode_id ? (
+                  <button
+                    type="button"
+                    className={styles.epLink}
+                    onClick={() => scrollToEpisode(action.episode_id!)}
+                  >
+                    episode ↗
+                  </button>
+                ) : null}
+                {action.supersedes.length > 0 ? (
+                  <span className={styles.supersedes} title={action.supersedes.join(", ")}>
+                    SUPERSEDES {shortSha(action.supersedes[0])}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.notes.length > 0 ? (
+        <ul className={styles.notes} aria-label="Action notes">
+          {data.notes.map((note) => (
+            <li key={note} className={styles.note}>
+              {note}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
