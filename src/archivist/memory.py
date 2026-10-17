@@ -159,6 +159,7 @@ class Memory:
         refs: list[dict] | None = None,
         valid_at: int | None = None,
         fact_id: str | None = None,
+        action: str | None = None,
     ) -> dict:
         """Record a fact with an open validity window; returns a summary dict.
 
@@ -179,14 +180,18 @@ class Memory:
             seed = f"{episode_id or ''}|{' '.join(text.split())}"
             fact_id = f"fact:{hashlib.sha256(seed.encode()).hexdigest()[:16]}"
         fid = fact_id
+        sets, action_params = "", {}
+        if action is not None:
+            sets = ", f.action = $action"
+            action_params = {"action": action}
         self._graph.query(
-            """
-            MERGE (f:Fact {id: $id})
+            f"""
+            MERGE (f:Fact {{id: $id}})
             ON CREATE SET f.created_at = $now, f.valid_at = coalesce($valid_at, $now),
                           f.invalid_at = NULL, f.expired_at = NULL
-            SET f.text = $text, f.kind = $kind
+            SET f.text = $text, f.kind = $kind{sets}
             """,
-            {"id": fid, "now": now, "valid_at": valid_at, "text": text, "kind": kind},
+            {"id": fid, "now": now, "valid_at": valid_at, "text": text, "kind": kind, **action_params},
         )
         provenance = False
         if episode_id:
@@ -295,6 +300,7 @@ class Memory:
         episode_id: str | None = None,
         refs: list[dict] | None = None,
         fact_id: str | None = None,
+        action: str | None = None,
     ) -> dict:
         """Contradiction handling: close ``old_id``, record the replacement.
 
@@ -319,6 +325,7 @@ class Memory:
             refs=refs,
             valid_at=start,
             fact_id=fact_id,
+            action=action,
         )
         edge_rows = self._graph.query(
             """

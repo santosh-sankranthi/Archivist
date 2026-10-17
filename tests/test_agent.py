@@ -104,7 +104,22 @@ def test_loop_happy_path_records_trace(chain_repo, falkordb_or_skip, temp_graph)
     assistant = [m for m in second["messages"] if m["role"] == "assistant"][-1]
     assert assistant["tool_calls"][0]["function"]["name"] == "overview"
     # All tool schemas are offered on tool rounds; withheld only on finalize.
+    # Without an `actions` collaborator, `act` is omitted from the offered set.
+    assert len(llm.requests[0]["tools"]) == len(TOOL_SCHEMAS) - 1
+    offered = {t["function"]["name"] for t in llm.requests[0]["tools"]}
+    assert "act" not in offered
+
+
+def test_act_tool_offered_with_actions_collaborator(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    repo = _repo(chain_repo, falkordb_or_skip, temp_graph)
+    llm = ScriptedLLM([text_response("done")])
+    actions = type("StubActions", (), {})()  # presence is enough for the gate
+    Agent(repo, llm, actions=actions).ask("q")
     assert len(llm.requests[0]["tools"]) == len(TOOL_SCHEMAS)
+    offered = {t["function"]["name"] for t in llm.requests[0]["tools"]}
+    assert "act" in offered
 
 
 def test_unknown_tool_error_is_fed_back(chain_repo, falkordb_or_skip, temp_graph):

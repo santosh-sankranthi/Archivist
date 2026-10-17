@@ -23,6 +23,7 @@ Endpoints:
     GET  /api/graph/symbol     call neighbourhood (callers + callees, ≤3 hops)
     GET  /api/graph/path       shortest directed call path between two symbols
     GET  /api/graph/memory     memory timeline: episodes + bi-temporal facts
+    GET  /api/graph/actions    proposed/closed actions (agent next steps)
     GET  /api/graph/crew       crew runs: phase spine + handoff notes
                                (as_of/history views)
     GET  /api/graph/history    repo (or one file's) past as UTC calendar-month
@@ -33,6 +34,7 @@ Endpoints:
     GET  /api/graph/ownership  who knows what — authors ranked from the
                                diff-bearing history of the repo or one file
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
+    POST /api/actions/{id}/complete  close an action (done/superseded), auth-gated
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
     POST /api/llm/test         try one request's LLM settings (tiny completion)
@@ -76,6 +78,7 @@ from .accounts import (
     clear_cookie,
     session_cookie,
 )
+from .actions import Actions
 from .agent import Agent
 from .llm import ChatLLM, LLMError
 from .memory import Memory
@@ -98,6 +101,9 @@ MAX_IMPORTERS_PER_MODULE = 150
 MAX_MEMORY_EPISODES = 40
 MAX_MEMORY_FACTS = 120
 MAX_EPISODE_ANSWER = 400  # chars kept per episode answer in the timeline
+# /api/graph/actions (inc1): the actions list is capped like memory, and the
+# trim is reported in notes — never silently truncated.
+MAX_ACTIONS = 120
 _EPISODE_CORE_KEYS = frozenset(
     {"id", "kind", "source", "ts", "created_at", "question", "answer", "role", "run"}
 )
@@ -780,6 +786,8 @@ class WebApp:
                     return self._json(200, self._graph_activity())
                 if path == "/api/graph/memory":
                     return self._json(200, self._graph_memory(query))
+                if path == "/api/graph/actions":
+                    return self._json(200, self._graph_actions(query))
                 if path == "/api/graph/crew":
                     return self._json(200, self._graph_crew(query))
                 if path == "/api/graph/history":
@@ -809,6 +817,10 @@ class WebApp:
                     return self._json(200, self._logout(ctx))
                 if path == "/api/graph/induced":
                     return self._json(200, self._graph_induced(body))
+                if path.startswith("/api/actions/") and path.endswith("/complete"):
+                    return self._json(
+                        200, self._complete_action(path, body, ctx)
+                    )
                 if path == "/api/cypher":
                     return self._json(200, self._cypher(body))
                 if path == "/api/ask":
@@ -1249,6 +1261,74 @@ class WebApp:
             "chain_facts": chain_facts,
             "notes": notes,
         }
+
+    def _graph_actions(self, query: dict) -> dict:
+        """Actions (inc1): the agent's recorded next steps, proposed first.
+
+        Mirrors ``/api/graph/memory``: a ``?status=`` filter (``proposed`` /
+        ``done`` / ``superseded`` / ``all``, default ``all``), an
+        ``actions`` list joined to ``ABOUT`` targets and the producing
+        episode, and a ``counts`` summary. Every cap is reported in
+        ``notes`` — never silently truncated.
+        """
+        raw_status = (query.get("status") or ["all"])[0].strip().lower()
+        status = raw_status if raw_status in ("proposed", "done", "superseded", "all") else None
+        actions = Actions(graph=self.graph, host=self.host, port=self.port)
+        try:
+            payload = actions.list_actions(status=status)
+        finally:
+            actions.close()
+        actions_out = payload["actions"]
+        counts = payload["counts"]
+        total = counts["total"]
+        if total > MAX_ACTIONS:
+            actions_out = actions_out[:MAX_ACTIONS]
+        notes: list[str] = []
+        if status is None and raw_status:
+            notes.append(
+                f"unknown status {raw_status!r} — showing all actions"
+            )
+        if total > MAX_ACTIONS:
+            notes.append(
+                f"actions capped at {MAX_ACTIONS} ({total - MAX_ACTIONS} not shown)"
+            )
+        if not actions_out:
+            notes.append("no actions recorded yet")
+        return {
+            "graph": self.graph,
+            "status": status,
+            "counts": counts,
+            "actions": actions_out,
+            "notes": notes,
+        }
+
+    def _complete_action(self, path: str, body: dict, ctx: RequestContext) -> dict:
+        """Close one action (``done``/``superseded``), auth-gated like writes.
+
+        Closing mutates shared state, so it requires an authenticated user
+        with their own repository — the demo graph is shared and refused.
+        """
+        self._auth_guard(ctx)
+        if self._request_user is None:
+            raise ApiError(401, "sign in to complete actions", code="unauthorized")
+        if self.graph == self._demo_graph:
+            raise ApiError(
+                403,
+                "actions live in your own repository — the demo graph is shared",
+                code="shared_graph",
+            )
+        action_id = path[len("/api/actions/") : -len("/complete")].strip()
+        if not action_id:
+            raise ApiError(400, "action id is required", code="bad_request")
+        status = str(body.get("status") or "done").strip().lower()
+        if status not in ("done", "superseded"):
+            raise ApiError(400, "status must be 'done' or 'superseded'")
+        actions = Actions(graph=self.graph, host=self.host, port=self.port)
+        try:
+            result = actions.complete_action(action_id, status=status)
+        finally:
+            actions.close()
+        return result
 
     def _graph_crew(self, query: dict) -> dict:
         """Crew runs (Console v2 P1): a phase spine per run + handoff notes.
@@ -2968,6 +3048,7 @@ class WebApp:
             if remember
             else None
         )
+        actions = Actions(graph=self.graph, host=self.host, port=self.port)
         try:
             episode_id = None
             if memory is not None:
@@ -2986,7 +3067,8 @@ class WebApp:
                 except Exception as exc:  # noqa: BLE001 - memory writes are best-effort
                     warnings.append(f"memory write failed: {exc}")
             answer = Agent(
-                repo, llm, max_steps=max_steps, memory=memory, episode_id=episode_id
+                repo, llm, max_steps=max_steps, memory=memory, episode_id=episode_id,
+                actions=actions,
             ).ask(question)
             if memory is not None and episode_id is not None:
                 try:
@@ -3010,6 +3092,7 @@ class WebApp:
             }
         finally:
             repo.close()
+            actions.close()
             if memory is not None:
                 memory.close()
 

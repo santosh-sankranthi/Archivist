@@ -55,6 +55,9 @@ How to work:
   when the user references earlier work ("last time", "previously").
   `remember` stores one durable finding for later sessions: conclusions
   worth keeping, not raw query results.
+- After answering, if a concrete next step is warranted, call `act` to
+  record it (review a target, change a file, or add/run a test) anchored to
+  the evidence you already cited.
 - Keep the final answer tight: 2-6 sentences or a short list, with citations.
 """
 
@@ -234,6 +237,32 @@ TOOL_SCHEMAS: list[dict] = [
         ["text"],
     ),
     _fn(
+        "act",
+        "Record a concrete next step the evidence warrants — review a target, change a file, or add/run a test — anchored to the cited evidence. Use after answering when a follow-up is warranted.",
+        {
+            "type": {
+                "type": "string",
+                "enum": ["review", "change", "test"],
+                "description": "Action type.",
+            },
+            "summary": {
+                "type": "string",
+                "description": "One-sentence description of the step.",
+            },
+            "targets": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Graph anchors the action targets, e.g. symbols/files/commits.",
+            },
+            "evidence": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Graph anchors cited as evidence for this step.",
+            },
+        },
+        ["type", "summary"],
+    ),
+    _fn(
         "query",
         "Read-only Cypher escape hatch for questions the curated tools do not fit. Writes are rejected by the database.",
         {
@@ -306,6 +335,7 @@ class Agent:
         max_steps: int = DEFAULT_MAX_STEPS,
         repo_label: str | None = None,
         memory: Any = None,
+        actions: Any = None,
         episode_id: str | None = None,
         system_prompt: str | None = None,
         tools: list[str] | None = None,
@@ -319,10 +349,13 @@ class Agent:
         self.max_steps = max(1, int(max_steps))  # 0/negatives would run nothing
         self.repo_label = repo_label or getattr(repo, "graph_name", "repo")
         self.memory = memory  # optional memory.Memory; enables the `remember` tool
+        self.actions = actions  # optional actions.Actions; enables the `act` tool
         self.episode_id = episode_id  # provenance for facts this run records
         self.system_prompt = system_prompt
         if tools is None:
             self.tool_names = set(TOOL_METHODS)
+            if actions is None:
+                self.tool_names.discard("act")
         else:
             unknown = sorted(set(tools) - set(TOOL_METHODS))
             if unknown:
@@ -475,10 +508,58 @@ class Agent:
     # -- tool dispatch ------------------------------------------------------
 
     def _dispatch(self, name: str, arguments: dict) -> dict:
-        """Route one tool call; ``remember`` writes through the memory layer."""
+        """Route one tool call; ``remember``/``act`` write through memory."""
         if name == "remember":
             return self._remember(arguments)
+        if name == "act":
+            return self._act(arguments)
         return getattr(self.repo, TOOL_METHODS[name])(**arguments)
+
+    def _act(self, arguments: dict) -> dict:
+        """Envelope for the write tool: plan one action via ``self.actions``.
+
+        Validation errors come back as error envelopes (not exceptions) so
+        the model can recover, mirroring the read tools' contract. The write
+        carries no ``queries`` — it is memory, not a read of the graph.
+        """
+
+        def shell(status: str, results: Any, notes: list[str]) -> dict:
+            return {
+                "tool": "act",
+                "status": status,
+                "params": arguments,
+                "count": None,
+                "results": results,
+                "notes": notes,
+                "queries": [],
+            }
+
+        if self.actions is None:
+            return shell("error", None, ["actions are not enabled for this run"])
+        summary = str(arguments.get("summary") or "").strip()
+        if not summary:
+            return shell("error", None, ["summary is required"])
+        type_ = str(arguments.get("type") or "").strip().lower()
+        targets = [t for t in (arguments.get("targets") or []) if isinstance(t, dict)]
+        evidence = [e for e in (arguments.get("evidence") or []) if isinstance(e, dict)]
+        try:
+            result = self.actions.plan_action(
+                summary=summary,
+                type=type_,
+                targets=targets,
+                evidence=evidence,
+                episode_id=self.episode_id,
+            )
+        except ValueError as exc:
+            return shell("error", None, [str(exc)])
+        notes = [f"planned as {result['fact_id']}"]
+        if self.episode_id and not result["provenance"]:
+            notes.append("episode link missing — action has no provenance")
+        if result["refs_missing"]:
+            notes.append(
+                "missing refs: " + ", ".join(str(m) for m in result["refs_missing"])
+            )
+        return {**shell("ok", result, notes), "count": 1}
 
     def _remember(self, arguments: dict) -> dict:
         """Envelope for the write tool: persist one fact via ``self.memory``.

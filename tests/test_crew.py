@@ -156,7 +156,9 @@ def test_crew_runs_three_phases_and_links_handoffs(
 
     # Role tool scopes: planner is orientation-only, verifier may not remember.
     assert _tool_names(llm.requests[0]["tools"]) == set(PLANNER_TOOLS)
-    assert _tool_names(llm.requests[2]["tools"]) == ALL_TOOLS
+    # The crew investigator has no `actions` collaborator (actions are authored
+    # in the single-agent loop only), so `act` is omitted from its full scope.
+    assert _tool_names(llm.requests[2]["tools"]) == ALL_TOOLS - {"act"}
     verifier_tools = _tool_names(llm.requests[5]["tools"])
     assert verifier_tools == set(VERIFIER_TOOLS) and "remember" not in verifier_tools
 
