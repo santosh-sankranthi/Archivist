@@ -1,16 +1,21 @@
 # Console v2 demo captures (M4R)
 
-Re-shot **2026-10-17 ~00:53Z** in one full pass after the Crew console view
-landed (M4R P1 — the rail gained "Crew", so every rail-visible still was
-re-taken for consistency). Stills run against the live server `:8787`; ask
-scenes (04–05) against the scripted capture server `:8789` — the real loop,
-tools and graph, only the model's next-move choices are canned (the status
-chip reads "scripted (demo)" inside the shot itself). The capture script
-fails on any JS error; this pass was clean, all 13 stills re-written.
+Re-shot **2026-10-17 ~02:29Z** in one full pass after the **Time machine**
+view landed (M4R runway flagship — the rail gained "Time machine", so
+every rail-visible still was re-taken for consistency; the pass wrote all
+16 stills). Stills run against the live server `:8787`; ask scenes (04–05)
+against the scripted capture server `:8789` — the real loop, tools and
+graph, only the model's next-move choices are canned (the status chip
+reads "scripted (demo)" inside the shot itself). The capture script fails
+on any JS error; this pass was clean.
 
 Notes:
 
-- `10-crew.png` (P1 Crew view, new this pass): the newest recorded run's
+- `11-history.png` / `12-history-window.png` / `13-history-file.png` (Time
+  machine, new this pass): the month skyline on live data, a window dragged
+  open over the busiest month (read live from the API, never a constant),
+  and the same view scoped to `src/flask/app.py` with a window of its own.
+- `10-crew.png` (P1 Crew view): the newest recorded run's
   phase spine (planner → investigator → verifier), handoff notes queried
   back from `HANDOFF` edges, and the investigator's per-phase trace open.
 - `08-memory.png` / `09-memory-asof.png` re-shot in the same pass; the

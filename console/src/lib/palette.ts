@@ -57,6 +57,11 @@ const ACTIONS: ActionDef[] = [
     to: href("/crew"),
   },
   {
+    label: "Go to Time machine",
+    keywords: "git history commits scrub timeline months time machine past evolution skyline",
+    to: href("/history"),
+  },
+  {
     label: "Go to About",
     keywords: "judges architecture falkordb tracks why",
     to: href("/about"),

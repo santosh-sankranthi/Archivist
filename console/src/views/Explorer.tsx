@@ -769,7 +769,17 @@ function Inspector({
         ) : null}
         {target?.kind === "file" && payload.history && payload.history.length > 0 ? (
           <>
-            <span className={styles.sectionLabel}>Recent history</span>
+            <div className={styles.historyHead}>
+              <span className={styles.sectionLabel}>Recent history</span>
+              <button
+                type="button"
+                className={styles.historyLink}
+                title="scrub this file's full history in the time machine"
+                onClick={() => navigate(href("/history", { file: target.path }))}
+              >
+                time machine →
+              </button>
+            </div>
             <div className={styles.historyList}>
               {payload.history.map((row) => (
                 <div key={row.sha} className={styles.historyRow}>

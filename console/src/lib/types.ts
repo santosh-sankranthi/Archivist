@@ -307,3 +307,58 @@ export interface CrewResponse {
   runs: CrewRun[];
   notes: string[];
 }
+
+/** `/api/graph/history` — the time machine: the repo's own past (or one
+ *  file's) as UTC calendar-month buckets, plus an optional commit window
+ *  (`?from=&to=`, `[from, to)` epoch seconds; the pair is sent together). */
+export interface HistoryBucket {
+  label: string;
+  t0: number;
+  t1: number;
+  commits: number;
+  touches: number;
+  added: number;
+  removed: number;
+}
+
+export interface HistoryTotals {
+  commits: number;
+  added: number;
+  removed: number;
+  files: number;
+  first_ts: number | null;
+  last_ts: number | null;
+}
+
+export interface HistoryCommit {
+  sha: string;
+  ts: number;
+  summary: string | null;
+  author: string | null;
+  /** Repo scope only; a file-scoped row counts that file's diff alone. */
+  touches?: number;
+  added: number;
+  removed: number;
+}
+
+export interface HistoryTopFile {
+  path: string;
+  commits: number;
+  added: number;
+  removed: number;
+}
+
+export interface HistoryWindow {
+  from: number;
+  to: number;
+  commits: HistoryCommit[];
+  top_files: HistoryTopFile[];
+}
+
+export interface HistoryResponse {
+  scope: { file: string | null };
+  buckets: HistoryBucket[];
+  totals: HistoryTotals;
+  notes: string[];
+  window?: HistoryWindow;
+}

@@ -54,3 +54,10 @@ export function stampDay(ts: number): string {
   const d = new Date(ts * 1000);
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
+
+/** Unix seconds -> "Apr 1, 2010" (UTC) — date-only, year included; window
+ *  bounds cross years, "Oct 16" alone would not say which one. */
+export function stampDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}

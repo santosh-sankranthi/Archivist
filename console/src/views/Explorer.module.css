@@ -615,6 +615,27 @@
   color: var(--text-low);
 }
 
+.historyHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.historyLink {
+  border: none;
+  background: none;
+  color: var(--text-mid);
+  font: 500 11px/1 var(--font-ui);
+  padding: 2px 4px;
+  border-radius: var(--r-1);
+  cursor: pointer;
+}
+
+.historyLink:hover {
+  color: var(--amber);
+}
+
 .historyList {
   display: flex;
   flex-direction: column;

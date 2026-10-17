@@ -13,6 +13,7 @@ import { About } from "./views/About";
 import { AskView } from "./views/AskView";
 import { Crew } from "./views/Crew";
 import { Explorer } from "./views/Explorer";
+import { History } from "./views/History";
 import { Home } from "./views/Home";
 import { Landing } from "./views/Landing";
 import { Memory } from "./views/Memory";
@@ -70,6 +71,8 @@ function Shell() {
     view = <Memory />;
   } else if (path === "/crew") {
     view = <Crew />;
+  } else if (path === "/history") {
+    view = <History />;
   } else if (path === "/about") {
     view = <About state={state.data} stateError={state.error?.message ?? null} />;
   } else {

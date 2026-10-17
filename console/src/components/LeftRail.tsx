@@ -22,6 +22,7 @@ const NAV = [
   { path: "/ask", label: "Ask" },
   { path: "/memory", label: "Memory" },
   { path: "/crew", label: "Crew" },
+  { path: "/history", label: "Time machine" },
   { path: "/about", label: "About" },
 ];
 

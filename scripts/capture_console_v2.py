@@ -13,7 +13,8 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
         --out docs/demo/m4r
 
 Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
-(04–05), palette (06), about (07), memory (08–09), crew (10). Waits on the
+(04–05), palette (06), about (07), memory (08–09), crew (10), history
+(11–13). Waits on the
 canvas `data-settled="1"` stamp, on scripted answer text, and on the
 landing's `window.__archivist.stagedAt` timeline token instead of fixed
 sleeps wherever possible; fails loudly on any JS error so a broken build
@@ -261,6 +262,56 @@ def run_crew(page: Page, base: str, out: Path) -> None:
     shot(page, out, "10-crew")
 
 
+def run_history(page: Page, base: str, out: Path) -> None:
+    """11–13: time machine — skyline, an opened window, then file scope.
+
+    Windows are dragged over the busiest month read live from the API, so
+    the shots show what the graph actually holds (never a chosen constant);
+    the file shot scopes to a heavily-committed file and drags its own
+    busiest month.
+    """
+    page.goto(f"{base}/console/history", wait_until="load")
+    page.wait_for_selector("[data-history][data-settled='1']", timeout=20000)
+    page.wait_for_selector("[data-skyline] button", timeout=20000)
+    page.wait_for_timeout(900)  # head rise + bars' first paint
+    shot(page, out, "11-history")
+
+    payload = page.request.get(f"{base}/api/graph/history").json()
+    drag_busiest_window(page, payload["buckets"])
+    page.wait_for_selector("[data-window='ready']", timeout=20000)
+    page.wait_for_timeout(900)  # panel rise + commit rows land
+    shot(page, out, "12-history-window")
+
+    page.goto(f"{base}/console/history?file=src/flask/app.py", wait_until="load")
+    page.wait_for_selector("[data-history][data-settled='1']", timeout=20000)
+    file_payload = page.request.get(
+        f"{base}/api/graph/history?file=src/flask/app.py"
+    ).json()
+    drag_busiest_window(page, file_payload["buckets"])
+    page.wait_for_selector("[data-window='ready']", timeout=20000)
+    page.wait_for_timeout(900)
+    shot(page, out, "13-history-file")
+
+
+def drag_busiest_window(page: Page, buckets: list[dict]) -> None:
+    """Drag a two-month window open over the busiest month in `buckets`."""
+    n = len(buckets)
+    if n < 2:
+        raise RuntimeError("skyline has fewer than two months — cannot drag")
+    peak = max(range(n), key=lambda i: buckets[i]["commits"])
+    start = peak if peak < n - 1 else peak - 1
+    box = page.locator("[data-skyline]").bounding_box()
+    if box is None:
+        raise RuntimeError("skyline has no box")
+    x0 = box["x"] + (start + 0.35) / n * box["width"]
+    x1 = box["x"] + (start + 1.65) / n * box["width"]
+    y = box["y"] + box["height"] * 0.5
+    page.mouse.move(x0, y)
+    page.mouse.down()
+    page.mouse.move(x1, y, steps=8)
+    page.mouse.up()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
@@ -281,6 +332,7 @@ def main() -> int:
             "about",
             "memory",
             "crew",
+            "history",
         ],
         default="all",
     )
@@ -322,6 +374,8 @@ def main() -> int:
             run_memory(page, base, out)
         if args.scene in ("all", "crew"):
             run_crew(page, base, out)
+        if args.scene in ("all", "history"):
+            run_history(page, base, out)
 
         browser.close()
 

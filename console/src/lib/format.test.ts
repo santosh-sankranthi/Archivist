@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampText, formatInt, relTime, shortSha } from "./format";
+import { clampText, formatInt, relTime, shortSha, stampDate } from "./format";
 
 describe("formatInt", () => {
   it("uses thousands separators", () => {
@@ -47,5 +47,12 @@ describe("clampText", () => {
     const out = clampText("Merge pull request #5111 from pallets/update-tests", 20);
     expect(out.length).toBe(20);
     expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+describe("stampDate", () => {
+  it("carries the year (UTC)", () => {
+    // 1270080000 = 2010-04-01T00:00:00Z
+    expect(stampDate(1270080000)).toBe("Apr 1, 2010");
   });
 });
