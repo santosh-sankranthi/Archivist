@@ -56,11 +56,13 @@ docker compose up -d --build     # FalkorDB + console -> http://127.0.0.1:8787/c
 docker compose run --rm app python scripts/ingest.py --repo /data/flask --graph repo:flask
 ```
 
-Console v2 is built inside the image; repositories under `data/` are mounted
-read-only at `/data` for ingesting (or mount any checkout with
-`-v /abs/path:/repo:ro` and `--repo /repo`). `ARCHIVIST_GRAPH` /
-`ARCHIVIST_PORT` / `FALKORDB_PORT` steer the stack, and `ARCHIVIST_LLM_*` in
-`.env` enables the ask room (without a key it stays an honest 503).
+Console v2 is built inside the image; `data/` is mounted read-write at
+`/data` — it holds the demo checkout and, from M6 on, the account store
+(`data/accounts`, `data/users/<uid>`). Mount any other checkout with
+`-v /abs/path:/repo:ro` and `--repo /repo`. `ARCHIVIST_GRAPH` /
+`ARCHIVIST_DEMO_GRAPH` / `ARCHIVIST_PORT` / `FALKORDB_PORT` /
+`ARCHIVIST_SIGNUP` steer the stack, and `ARCHIVIST_LLM_*` in `.env` enables
+the ask room (without a key it stays an honest 503).
 Details: `docs/DEPLOY.md` §4.
 
 ## Graph data model

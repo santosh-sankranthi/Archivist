@@ -1,0 +1,18 @@
+Archivist M6a — accounts / sessions / isolation (live HTTP smoke)
+  anonymous /api/me                200 user=None repo=repo:flask
+  signup                           200 user=santosh uid=e2578b8b
+  cookie flags                     Path=/; HttpOnly; SameSite=Lax; Max-Age=604800
+  token stored as                  sha256(token) only
+  session /api/me                  200 user=santosh anonymous=False
+  login                            200 fresh-token=True
+  duplicate signup                 409 username_taken
+  wrong password                   401 bad_credentials (generic)
+  cross-origin signup              403 bad_origin
+  users.json                       keys=['created_at', 'hash', 'salt', 'uid', 'username'] hash!=password=True
+  alice ?repo=a1                   graph=user:alice
+  bob ?repo=a1                     404 no_such_repo
+  anonymous ?repo=a1               graph=repo:flask
+  alice ?repo=repo:flask           404 no_such_repo
+  logout                           200 cleared=True
+  old token after logout           200 anonymous=True
+OK — all probes answered as designed.

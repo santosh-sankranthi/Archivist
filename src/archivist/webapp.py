@@ -46,6 +46,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import pairwise
@@ -56,6 +58,14 @@ from falkordb import Edge, FalkorDB, Node
 from falkordb import Path as GraphPath
 from redis.exceptions import ResponseError
 
+from .accounts import (
+    SESSION_COOKIE,
+    AccountError,
+    AccountStore,
+    User,
+    clear_cookie,
+    session_cookie,
+)
 from .agent import Agent
 from .llm import ChatLLM
 from .memory import Memory
@@ -139,11 +149,21 @@ LLM_HINT = (
 # missing key is not a client error (REVIEW-M4a F5).
 _ERROR_CODES = {
     400: "bad_request",
+    401: "unauthorized",
     403: "forbidden",
     404: "not_found",
+    409: "conflict",
     413: "too_large",
+    415: "unsupported_media_type",
+    429: "rate_limited",
     503: "unavailable",
 }
+
+#: Routes that never resolve a repo graph: auth must work even if a user's
+#: registry is mid-ingest or a ``?repo=`` value is junk.
+_AUTH_PATHS = frozenset(
+    {"/api/auth/signup", "/api/auth/login", "/api/auth/logout", "/api/me"}
+)
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -158,12 +178,41 @@ _CONTENT_TYPES = {
 
 
 class ApiError(Exception):
-    """A clean 4xx for the JSON layer."""
+    """A clean 4xx for the JSON layer (``code`` overrides the status label)."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, *, code: str | None = None):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.code = code
+
+
+@dataclass(frozen=True)
+class RequestContext:
+    """What the HTTP layer knows before routing: who, from where, how."""
+
+    user: User | None = None
+    token: str | None = None
+    headers: dict = field(default_factory=dict)
+    client_ip: str = "unknown"
+    secure: bool = False
+
+
+# One graph override and one response-header bag per request thread. The
+# property trick keeps every existing ``self.graph`` call site unchanged
+# while a request may only ever see the graph its session is allowed to.
+_GRAPH_LOCAL = threading.local()
+_CTX_LOCAL = threading.local()
+_HEADERS_LOCAL = threading.local()
+
+
+def _cookie_value(raw: str | None, name: str) -> str | None:
+    """First ``name`` value from a Cookie header, tolerant of spacing."""
+    for part in (raw or "").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name:
+            return value or None
+    return None
 
 
 def _jsonable(value):
@@ -429,15 +478,164 @@ class WebApp:
         host: str = "127.0.0.1",
         port: int = 6379,
         llm_factory=None,
+        *,
+        accounts: AccountStore | None = None,
+        demo_graph: str | None = None,
+        signup: str = "open",
     ):
-        self.graph = graph
         self.host = host
         self.port = port
+        # The default graph is what anonymous visitors and signed-in users
+        # without a repo of their own see. ``demo_graph`` names the shared
+        # fallback explicitly (it is also how memory writes stay gated).
+        self._default_graph = graph
+        self._demo_graph = demo_graph or graph
+        self.accounts = accounts
+        self.signup = "open" if signup == "open" else "closed"
         # Injection seam for tests and the scripted capture server
         # (``serve.py --llm-script``); production callers get the real
         # BYO-key client. The agent loop, tools and graph stay real either
         # way — only the model's next-move choices are canned.
         self._llm_factory = llm_factory or ChatLLM
+
+    @property
+    def graph(self) -> str:
+        """The graph this request may read — resolved per session, never raw."""
+        return getattr(_GRAPH_LOCAL, "graph", None) or self._default_graph
+
+    @property
+    def demo_graph(self) -> str:
+        return self._demo_graph
+
+    # -- per-request state -------------------------------------------------
+
+    def reset_headers(self) -> None:
+        _HEADERS_LOCAL.items = []
+
+    def take_headers(self) -> list[tuple[str, str]]:
+        items = getattr(_HEADERS_LOCAL, "items", [])
+        _HEADERS_LOCAL.items = []
+        return items
+
+    def _add_header(self, name: str, value: str) -> None:
+        items = getattr(_HEADERS_LOCAL, "items", None)
+        if items is None:
+            items = _HEADERS_LOCAL.items = []
+        items.append((name, value))
+
+    def _enter(self, ctx: RequestContext, path: str, query: dict) -> None:
+        """Bind request identity + allowed graph to this thread."""
+        _CTX_LOCAL.ctx = ctx
+        _GRAPH_LOCAL.graph = self._default_graph
+        if path in _AUTH_PATHS or self.accounts is None:
+            return
+        values = query.get("repo") or []
+        repo_id = values[0] if values and isinstance(values[0], str) else None
+        if repo_id is not None and (not repo_id or len(repo_id) > 64):
+            raise ApiError(404, "no such repository", code="no_such_repo")
+        try:
+            graph, _repo = self.accounts.resolve_graph(
+                ctx.user, repo_id, demo_graph=self._demo_graph
+            )
+        except AccountError as exc:
+            raise ApiError(exc.status, exc.message, code=exc.code) from exc
+        _GRAPH_LOCAL.graph = graph
+
+    def _leave(self) -> None:
+        _GRAPH_LOCAL.graph = None
+        _CTX_LOCAL.ctx = None
+
+    @property
+    def _request_user(self) -> User | None:
+        ctx = getattr(_CTX_LOCAL, "ctx", None)
+        return ctx.user if ctx else None
+
+    # -- auth --------------------------------------------------------------
+
+    def _require_accounts(self) -> AccountStore:
+        if self.accounts is None:
+            raise ApiError(
+                503, "accounts are not enabled on this server", code="accounts_disabled"
+            )
+        return self.accounts
+
+    def _auth_guard(self, ctx: RequestContext) -> None:
+        """JSON-only + same-origin mutations (cheap CSRF gate for cookies)."""
+        self._require_accounts()
+        ctype = (ctx.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            raise ApiError(
+                415,
+                "auth requests must be JSON (Content-Type: application/json)",
+                code="json_required",
+            )
+        origin = (ctx.headers.get("Origin") or "").strip()
+        if origin:
+            host = (ctx.headers.get("Host") or "").strip().lower()
+            if not host or urlsplit(origin).netloc.lower() != host:
+                raise ApiError(403, "cross-origin request refused", code="bad_origin")
+
+    @staticmethod
+    def _client_key(ctx: RequestContext) -> str:
+        """Rate-limit key: Cloudflare's client ip when present, else peer ip.
+
+        Trust assumption: the direct port is loopback-only; through the
+        tunnel Cloudflare overwrites this header. A publicly exposed port
+        would make it spoofable — documented in docs/DEPLOY.md.
+        """
+        forwarded = (ctx.headers.get("CF-Connecting-IP") or "").strip()
+        return forwarded or ctx.client_ip or "unknown"
+
+    def _open_session(self, user: User, ctx: RequestContext) -> dict:
+        accounts = self._require_accounts()
+        token, expires = accounts.open_session(user)
+        max_age = max(0, expires - accounts.now())
+        self._add_header(
+            "Set-Cookie", session_cookie(token, secure=ctx.secure, max_age=max_age)
+        )
+        return {"user": user.public(), "repos": accounts.repos(user.uid)}
+
+    def _signup(self, body: dict, ctx: RequestContext) -> dict:
+        self._auth_guard(ctx)
+        if self.signup != "open":
+            raise ApiError(
+                403, "signups are closed on this server", code="signup_closed"
+            )
+        try:
+            user = self.accounts.signup(
+                body.get("username"), body.get("password"), ip=self._client_key(ctx)
+            )
+        except AccountError as exc:
+            raise ApiError(exc.status, exc.message, code=exc.code) from exc
+        return self._open_session(user, ctx)
+
+    def _login(self, body: dict, ctx: RequestContext) -> dict:
+        self._auth_guard(ctx)
+        try:
+            user = self.accounts.authenticate(
+                body.get("username"), body.get("password"), ip=self._client_key(ctx)
+            )
+        except AccountError as exc:
+            raise ApiError(exc.status, exc.message, code=exc.code) from exc
+        return self._open_session(user, ctx)
+
+    def _logout(self, ctx: RequestContext) -> dict:
+        self._auth_guard(ctx)
+        self.accounts.close_session(ctx.token)
+        self._add_header("Set-Cookie", clear_cookie(secure=ctx.secure))
+        return {"ok": True}
+
+    def _me(self, ctx: RequestContext) -> dict:
+        user = ctx.user
+        repos = self.accounts.repos(user.uid) if (self.accounts and user) else []
+        return {
+            "user": user.public() if user else None,
+            "anonymous": user is None,
+            "signup": self.signup if self.accounts else "closed",
+            "repos": repos,
+            "demo_graph": self._demo_graph,
+            "graph": self.graph,
+        }
 
     # -- plumbing ----------------------------------------------------------
 
@@ -475,9 +673,16 @@ class WebApp:
     # -- dispatch ----------------------------------------------------------
 
     def dispatch(
-        self, method: str, path: str, query: dict, body: dict
+        self,
+        method: str,
+        path: str,
+        query: dict,
+        body: dict,
+        ctx: RequestContext | None = None,
     ) -> tuple[int, str, bytes]:
+        ctx = ctx or RequestContext()
         try:
+            self._enter(ctx, path, query)
             if method == "GET":
                 if path in ("/", "/classic", "/classic/"):
                     # "/" is 302'd to /console/ at the HTTP layer; /classic/
@@ -513,7 +718,15 @@ class WebApp:
                     return self._json(200, self._graph_symbol(query))
                 if path == "/api/graph/path":
                     return self._json(200, self._graph_path(query))
+                if path == "/api/me":
+                    return self._json(200, self._me(ctx))
             elif method == "POST":
+                if path == "/api/auth/signup":
+                    return self._json(200, self._signup(body, ctx))
+                if path == "/api/auth/login":
+                    return self._json(200, self._login(body, ctx))
+                if path == "/api/auth/logout":
+                    return self._json(200, self._logout(ctx))
                 if path == "/api/graph/induced":
                     return self._json(200, self._graph_induced(body))
                 if path == "/api/cypher":
@@ -527,7 +740,7 @@ class WebApp:
             return self._json(
                 exc.status,
                 {
-                    "error": _ERROR_CODES.get(exc.status, "error"),
+                    "error": exc.code or _ERROR_CODES.get(exc.status, "error"),
                     "message": exc.message,
                 },
             )
@@ -543,6 +756,8 @@ class WebApp:
                 500,
                 {"error": "server_error", "message": f"{type(exc).__name__}: {exc}"},
             )
+        finally:
+            self._leave()
 
     # -- static ------------------------------------------------------------
 
@@ -2637,6 +2852,21 @@ class WebApp:
         except (TypeError, ValueError):
             max_steps = 8
         remember = body.get("remember", True) is not False
+        warnings: list[str] = []
+        # The demo graph is shared by every visitor. A signed-in user who has
+        # no repo of their own still reads it, but their questions must not
+        # write memories into everybody else's history — refuse honestly
+        # instead of silently dropping the write.
+        if (
+            remember
+            and self._request_user is not None
+            and self.graph == self._demo_graph
+        ):
+            remember = False
+            warnings.append(
+                "memory writes need a repository of your own — the demo graph "
+                "is shared, so this answer was not remembered"
+            )
         llm = self._llm_factory()
         if not llm.is_configured():
             raise ApiError(503, LLM_HINT)
@@ -2647,7 +2877,6 @@ class WebApp:
             else None
         )
         try:
-            warnings: list[str] = []
             episode_id = None
             if memory is not None:
                 try:
@@ -2798,6 +3027,11 @@ def make_server(
 
         def _dispatch(self, method: str) -> None:
             close_after = False
+            app = self.server.app  # type: ignore[attr-defined]
+            app.reset_headers()
+            session = None
+            token = None
+            ctx = RequestContext()
             try:
                 split = urlsplit(self.path)
                 if method in ("GET", "HEAD") and split.path == "/":
@@ -2832,14 +3066,25 @@ def make_server(
                     if not isinstance(parsed, dict):
                         raise ValueError("body must be a JSON object")
                     body = parsed
-                status, content_type, payload = self.server.app.dispatch(  # type: ignore[attr-defined]
-                    method, split.path, parse_qs(split.query), body
+                token = _cookie_value(self.headers.get("Cookie"), SESSION_COOKIE)
+                accounts = app.accounts
+                session = accounts.session_info(token) if accounts else None
+                ctx = RequestContext(
+                    user=session.user if session else None,
+                    token=token,
+                    headers=self.headers,
+                    client_ip=str(self.client_address[0]),
+                    secure=(self.headers.get("X-Forwarded-Proto") or "").lower()
+                    == "https",
+                )
+                status, content_type, payload = app.dispatch(
+                    method, split.path, parse_qs(split.query), body, ctx=ctx
                 )
             except ApiError as exc:
                 status, content_type, payload = WebApp._json(
                     exc.status,
                     {
-                        "error": _ERROR_CODES.get(exc.status, "error"),
+                        "error": exc.code or _ERROR_CODES.get(exc.status, "error"),
                         "message": exc.message,
                     },
                 )
@@ -2847,10 +3092,29 @@ def make_server(
                 status, content_type, payload = WebApp._json(
                     400, {"error": "bad_request", "message": f"bad request: {exc}"}
                 )
+            extra_headers = app.take_headers()
+            has_cookie = any(
+                name.lower() == "set-cookie" for name, _value in extra_headers
+            )
+            if session is not None and session.refreshed and not has_cookie and token:
+                # Sliding TTL: refresh the browser cookie when the server
+                # slid the session (throttled by the store, not per request).
+                extra_headers.append(
+                    (
+                        "Set-Cookie",
+                        session_cookie(
+                            token,
+                            secure=ctx.secure,
+                            max_age=max(0, session.expires_at - int(time.time())),
+                        ),
+                    )
+                )
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
+            for name, value in extra_headers:
+                self.send_header(name, value)
             self.end_headers()
             if method != "HEAD":
                 self.wfile.write(payload)

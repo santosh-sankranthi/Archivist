@@ -35,6 +35,7 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
+from archivist.accounts import AccountStore
 from archivist.llm import LLMResponse, ToolCall
 from archivist.webapp import WebApp, make_server
 
@@ -141,6 +142,28 @@ def main() -> int:
         metavar="FILE",
         help="JSON scenarios for a deterministic capture server (see module doc)",
     )
+    parser.add_argument(
+        "--data-dir",
+        default=os.environ.get("ARCHIVIST_DATA_DIR", str(ROOT / "data")),
+        help="accounts + per-user data root (default <repo>/data)",
+    )
+    parser.add_argument(
+        "--demo-graph",
+        default=os.environ.get("ARCHIVIST_DEMO_GRAPH", ""),
+        help="shared anonymous graph (default: the --graph value)",
+    )
+    parser.add_argument(
+        "--signup",
+        choices=("open", "closed"),
+        default=os.environ.get("ARCHIVIST_SIGNUP", "open"),
+        help="whether new accounts may be created (default open)",
+    )
+    parser.add_argument(
+        "--max-repos",
+        type=int,
+        default=int(os.environ.get("ARCHIVIST_MAX_REPOS", "2")),
+        help="repos per account (default 2)",
+    )
     args = parser.parse_args()
 
     factory = None
@@ -148,10 +171,23 @@ def main() -> int:
         scenarios = load_scenarios(args.llm_script)
         factory = scripted_factory(scenarios)
 
-    app = WebApp(graph=args.graph, host=args.host, port=args.port, llm_factory=factory)
+    accounts = AccountStore(args.data_dir, max_repos=args.max_repos)
+    app = WebApp(
+        graph=args.graph,
+        host=args.host,
+        port=args.port,
+        llm_factory=factory,
+        accounts=accounts,
+        demo_graph=args.demo_graph or args.graph,
+        signup=args.signup,
+    )
     server = make_server(app, bind=args.bind, port=args.http_port)
     print(f"Archivist console — http://{args.bind}:{server.server_port}")
     print(f"  {app.status_line()}")
+    print(
+        f"  accounts: data={args.data_dir} signup={app.signup} "
+        f"demo={app.demo_graph} max_repos={accounts.max_repos}"
+    )
     if factory is not None:
         print(f"  capture mode: {len(scenarios)} scripted scenario(s)")
     print("  Ctrl-C to stop")

@@ -15,8 +15,16 @@ python scripts/serve.py                  # -> http://127.0.0.1:8787
 ```
 
 This is the full product: ingest, agent loop (`scripts/ask.py`), crew
-(`scripts/crew.py`), web console. The console is read-only over the graph;
-the Ask panel needs an LLM key (any OpenAI-compatible endpoint) in `.env`.
+(`scripts/crew.py`), web console. Code graphs are read-only through the web
+layer; the only writes are memory episodes/facts and, from M6 on, accounts
+under `data/`. The Ask panel needs an LLM key (any OpenAI-compatible
+endpoint) in `.env` — or a visitor's own key at request time (M7).
+
+Accounts (M6) live in `data/accounts/{users,sessions}.json` (0600, atomic
+writes) with per-user registries in `data/users/<uid>/`. `serve.py` flags:
+`--data-dir` (default `<repo>/data`), `--demo-graph`, `--signup open|closed`,
+`--max-repos` (default 2). Anonymous visitors stay on the shared demo graph;
+a signed-in user may only name repo ids from their own registry.
 
 ### Console v2 (`/console/`, M4R)
 
@@ -80,9 +88,10 @@ docker compose up -d --build     # -> http://127.0.0.1:8787/console/
 docker compose run --rm app python scripts/ingest.py --repo /data/flask --graph repo:flask
 ```
 
-Repositories under `data/` are mounted read-only at `/data` for ingesting;
-any other checkout works with `-v /abs/path:/repo:ro --repo /repo`. Serve a
-different graph name with `ARCHIVIST_GRAPH=repo:mytool docker compose up -d`
+`data/` is mounted **read-write** at `/data`: it holds the demo checkout plus
+the account store and per-user registry files (`ARCHIVIST_DATA_DIR=/data`).
+Any other checkout works read-only with `-v /abs/path:/repo:ro --repo /repo`.
+Serve a different graph name with `ARCHIVIST_GRAPH=repo:mytool docker compose up -d`
 (queries run live, so re-ingest needs no restart — only a graph *name*
 change does). Graph data lives in the `falkordb-data` volume and survives
 rebuilds. First run: ingest a repository before exploring — until then the
@@ -90,19 +99,28 @@ read APIs report that the graph doesn't exist yet.
 
 Knobs: `ARCHIVIST_PORT` (console host port, default 8787), `FALKORDB_PORT`
 (database host port, default 6379 — set it if a local FalkorDB already holds
-6379), `ARCHIVIST_GRAPH` (graph served). Both published ports bind to
-`127.0.0.1` only. The ask room needs a key — `ARCHIVIST_LLM_*` (or
+6379), `ARCHIVIST_GRAPH` / `ARCHIVIST_DEMO_GRAPH` (graphs served),
+`ARCHIVIST_SIGNUP=open|closed`, `ARCHIVIST_MAX_REPOS` (default 2). Both
+published ports bind to `127.0.0.1` only. The ask room needs a key — `ARCHIVIST_LLM_*` (or
 `OPENAI_*`) in `.env` next to `compose.yaml`; without one it stays an honest
 503. `serve.py` itself reads `FALKORDB_HOST` / `FALKORDB_PORT` /
 `ARCHIVIST_GRAPH` / `ARCHIVIST_BIND` / `ARCHIVIST_PORT` as flag defaults.
 
 ## Security notes (honest)
 
-- The console has **no authentication by design**: it is a local,
-  single-user tool. Before pointing a tunnel at a *private* repo graph, add
-  auth; the public demo only ever exposes the OSS flask graph.
-- Read-only: every endpoint is a projection over `ro_query`; there is no
-  write path through the web layer.
+- **Accounts (M6):** anonymous visitors only ever read the shared demo
+  graph. Signed-in users can only name repo ids from their own registry;
+  raw graph names from a client are refused (404). Passwords are scrypt
+  hashes, session tokens are stored as SHA-256 hashes, cookies are
+  HttpOnly/SameSite=Lax (+Secure behind an HTTPS proxy), and auth mutations
+  require JSON + same-origin. Login/signup are rate-limited per client ip —
+  the key is `CF-Connecting-IP` through the tunnel and the socket peer
+  otherwise, so exposing the port directly makes that header spoofable.
+  Limits are in-process and reset on restart. Graph reads are still
+  `ro_query`-only; the web layer's writes are auth state and memory
+  episodes/facts, and memory writes are refused for signed-in users on the
+  shared demo graph. Accounts data is not encrypted at rest — it is a
+  single-box demo, documented rather than pretended otherwise.
 - Guards in place: request body cap (1 MB), per-query result caps with
   visible notes, in-flight request cap (`MAX_INFLIGHT = 48`, excess
   connections get `503 + Retry-After` instead of unbounded threads), and a

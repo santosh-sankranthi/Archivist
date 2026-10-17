@@ -2,16 +2,17 @@
 #
 #   docker compose up -d --build        -> http://127.0.0.1:8787/console/
 #
-# Ingest repositories from ./data (mounted read-only at /data), or mount any
-# checkout for one command:
-#   docker compose run --rm app python scripts/ingest.py --repo /data/flask --graph repo:flask
+# ./data is read-write: it holds the shared demo checkout *and* the account
+# store (data/accounts, data/users/<uid>). Mount any other checkout for one
+# command:
 #   docker compose run --rm -v /abs/path/to/repo:/repo:ro app \
 #     python scripts/ingest.py --repo /repo --graph repo:mytool
 #
 # Knobs: ARCHIVIST_PORT (console host port), FALKORDB_PORT (database host
-# port — set it if a local FalkorDB already holds 6379), ARCHIVIST_GRAPH
-# (graph served; restart the app when the name changes). ARCHIVIST_LLM_* in
-# .env enables the ask room; without a key it stays an honest 503.
+# port — set it if a local FalkorDB already holds 6379), ARCHIVIST_GRAPH /
+# ARCHIVIST_DEMO_GRAPH (shared graph served; restart when names change),
+# ARCHIVIST_SIGNUP=open|closed, ARCHIVIST_MAX_REPOS. ARCHIVIST_LLM_* in .env
+# enables the ask room; without a key it stays an honest 503.
 name: archivist
 
 services:
@@ -38,11 +39,15 @@ services:
     ports:
       - "127.0.0.1:${ARCHIVIST_PORT:-8787}:8787"
     volumes:
-      - ./data:/data:ro
+      - ./data:/data
     environment:
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: "6379"
+      ARCHIVIST_DATA_DIR: /data
       ARCHIVIST_GRAPH: ${ARCHIVIST_GRAPH:-repo:flask}
+      ARCHIVIST_DEMO_GRAPH: ${ARCHIVIST_DEMO_GRAPH:-repo:flask}
+      ARCHIVIST_SIGNUP: ${ARCHIVIST_SIGNUP:-open}
+      ARCHIVIST_MAX_REPOS: ${ARCHIVIST_MAX_REPOS:-2}
       ARCHIVIST_LLM_BASE_URL: ${ARCHIVIST_LLM_BASE_URL:-}
       ARCHIVIST_LLM_API_KEY: ${ARCHIVIST_LLM_API_KEY:-}
       ARCHIVIST_LLM_MODEL: ${ARCHIVIST_LLM_MODEL:-}
