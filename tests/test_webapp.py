@@ -13,14 +13,17 @@ import json
 import os
 import re
 import socket
+import subprocess
 import threading
 import time
 import urllib.error
 import urllib.request
+from itertools import pairwise
 from typing import ClassVar
 
 import pytest
 
+from archivist.graph import GraphWriter
 from archivist.ingest import ingest
 from archivist.llm import LLMResponse
 from archivist.memory import Memory
@@ -936,3 +939,202 @@ def test_crew_empty_graph_is_honest(web_server: str):
     assert status == 200
     assert data["runs"] == [] and data["counts"]["runs"] == 0
     assert any("no crew runs recorded yet" in n for n in data["notes"])
+
+
+# -- /api/graph/history (M4R time machine) -----------------------------------
+
+
+def _commit(repo, *args: str, when: str | None = None) -> None:
+    """One git command with a deterministic identity (mirrors conftest).
+
+    ``when`` overrides author+committer dates (ISO-8601) so tests can place
+    commits in specific months — the time machine's buckets are calendar
+    months, and a test that never crosses a month boundary cannot see them.
+    """
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Dev One",
+        "GIT_AUTHOR_EMAIL": "dev@example.com",
+        "GIT_COMMITTER_NAME": "Dev One",
+        "GIT_COMMITTER_EMAIL": "dev@example.com",
+    }
+    if when:
+        env["GIT_AUTHOR_DATE"] = when
+        env["GIT_COMMITTER_DATE"] = when
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "commit.gpgsign=false", *args],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+
+@pytest.fixture()
+def history_server(tmp_path, falkordb_or_skip, temp_graph):
+    """A repo with a merge commit and a multi-file commit, served for history.
+
+    The chain fixture is linear; the time machine's honesty hinges on merge
+    commits (no diff — kept, zero touches) and on commits that touch several
+    files, so this repo carries both.
+    """
+    host, port = falkordb_or_skip
+    repo = tmp_path / "hist"
+    repo.mkdir()
+    _commit(repo, "init", "-q", "-b", "main")
+    (repo / "f.py").write_text("x = 1\n")
+    (repo / "g.py").write_text("y = 1\n")
+    _commit(repo, "add", ".")
+    _commit(repo, "commit", "-q", "-m", "base: f and g")
+    _commit(repo, "checkout", "-q", "-b", "side")
+    (repo / "h.py").write_text("z = 1\n")
+    _commit(repo, "add", ".")
+    _commit(repo, "commit", "-q", "-m", "side adds h")
+    _commit(repo, "checkout", "-q", "main")
+    _commit(repo, "merge", "--no-ff", "-q", "-m", "merge side", "side")
+    ingest(repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+def test_history_buckets_cover_all_commits(history_server: str):
+    status, data = get_json(history_server + "/api/graph/history")
+    assert status == 200
+    assert data["scope"] == {"file": None}
+    totals = data["totals"]
+    assert totals["commits"] == 3  # the merge is included — never dropped
+    assert totals["added"] == 3 and totals["removed"] == 0
+    assert totals["files"] == 3
+    assert totals["first_ts"] <= totals["last_ts"]
+    buckets = data["buckets"]
+    assert sum(b["commits"] for b in buckets) == 3
+    assert sum(b["added"] for b in buckets) == 3
+    for bucket in buckets:
+        assert set(bucket) == {
+            "label",
+            "t0",
+            "t1",
+            "commits",
+            "touches",
+            "added",
+            "removed",
+        }
+    # Buckets tile the calendar: each one ends where the next begins.
+    for left, right in pairwise(buckets):
+        assert left["t1"] == right["t0"]
+    assert any("UTC calendar months" in n for n in data["notes"])
+
+
+def test_history_window_reports_commits_and_top_files(history_server: str, monkeypatch):
+    _, data = get_json(history_server + "/api/graph/history")
+    assert data["buckets"], "fixture commits must land in a bucket"
+    frm = data["buckets"][0]["t0"]
+    to = data["buckets"][-1]["t1"]
+    status, win = get_json(history_server + f"/api/graph/history?from={frm}&to={to}")
+    assert status == 200
+    window = win["window"]
+    assert window["from"] == frm and window["to"] == to
+    assert len(window["commits"]) == 3
+    assert any(c["touches"] == 0 for c in window["commits"])  # the merge stays
+    for commit in window["commits"]:
+        assert set(commit) == {
+            "sha",
+            "ts",
+            "summary",
+            "author",
+            "touches",
+            "added",
+            "removed",
+        }
+        assert len(commit["sha"]) == 10
+    assert {f["path"] for f in window["top_files"]} == {"f.py", "g.py", "h.py"}
+    # Caps are exact and reported — no silent trimming.
+    monkeypatch.setattr("archivist.webapp.MAX_HISTORY_COMMITS", 2)
+    _, win2 = get_json(history_server + f"/api/graph/history?from={frm}&to={to}")
+    assert len(win2["window"]["commits"]) == 2
+    assert "window commits capped at 2 (1 not shown)" in win2["notes"]
+    monkeypatch.setattr("archivist.webapp.MAX_HISTORY_FILES", 2)
+    _, win3 = get_json(history_server + f"/api/graph/history?from={frm}&to={to}")
+    assert len(win3["window"]["top_files"]) == 2
+    assert "top files capped at 2 (1 not shown)" in win3["notes"]
+
+
+def test_history_file_scope_is_honest(history_server: str):
+    _, data = get_json(history_server + "/api/graph/history?file=f.py")
+    assert data["scope"] == {"file": "f.py"}
+    assert data["totals"]["commits"] == 1
+    assert data["totals"]["files"] == 1
+    assert sum(b["touches"] for b in data["buckets"]) == 1
+    frm = data["buckets"][0]["t0"]
+    to = data["buckets"][-1]["t1"]
+    _, win = get_json(
+        history_server + f"/api/graph/history?file=f.py&from={frm}&to={to}"
+    )
+    assert len(win["window"]["commits"]) == 1
+    assert win["window"]["top_files"] == []
+    # A path the graph never saw is a 404, same rule as /api/graph/file.
+    assert status_only(history_server + "/api/graph/history?file=nope.py") == 404
+
+
+def test_history_keeps_commitless_file_honest(
+    history_server: str, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    writer = GraphWriter(host=host, port=port, graph=temp_graph)
+    writer.smoke("CREATE (:File {path: 'ghost.py', lang: 'python', loc: 0})")
+    status, data = get_json(history_server + "/api/graph/history?file=ghost.py")
+    assert status == 200
+    assert data["buckets"] == [] and data["totals"]["commits"] == 0
+    assert any("no commits touch" in n for n in data["notes"])
+
+
+@pytest.fixture()
+def gapped_server(tmp_path, falkordb_or_skip, temp_graph):
+    """Two commits two months apart — the quiet month must still appear."""
+    host, port = falkordb_or_skip
+    repo = tmp_path / "gapped"
+    repo.mkdir()
+    _commit(repo, "init", "-q", "-b", "main")
+    (repo / "a.py").write_text("a = 1\n")
+    _commit(repo, "add", ".")
+    _commit(repo, "commit", "-q", "-m", "january", when="2026-01-15T12:00:00+00:00")
+    (repo / "a.py").write_text("a = 2\n")
+    _commit(repo, "add", ".")
+    _commit(repo, "commit", "-q", "-m", "march", when="2026-03-10T12:00:00+00:00")
+    ingest(repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+def test_history_fills_quiet_months_with_zeros(gapped_server: str):
+    _, data = get_json(gapped_server + "/api/graph/history")
+    assert [b["label"] for b in data["buckets"]] == ["2026-01", "2026-02", "2026-03"]
+    quiet = data["buckets"][1]
+    assert quiet["commits"] == 0 and quiet["added"] == 0 and quiet["touches"] == 0
+    assert data["totals"]["commits"] == 2
+    assert data["totals"]["added"] == 2
+    # Zero-filled months still tile the calendar exactly (scrubber guarantee).
+    for left, right in pairwise(data["buckets"]):
+        assert left["t1"] == right["t0"]
+
+
+def test_history_window_validates_params(history_server: str):
+    base = history_server + "/api/graph/history"
+    assert status_only(base + "?from=100") == 400  # to missing
+    assert status_only(base + "?to=100") == 400  # from missing
+    assert status_only(base + "?from=200&to=100") == 400  # from >= to
+    assert status_only(base + "?from=x&to=y") == 400
+    # An empty window is a real answer, not an error.
+    status, data = get_json(base + "?from=1&to=2")
+    assert status == 200
+    assert data["window"]["commits"] == [] and data["window"]["top_files"] == []
+    assert any("no commits in this window" in n for n in data["notes"])

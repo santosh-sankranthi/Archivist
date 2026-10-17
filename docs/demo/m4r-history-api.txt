@@ -1,0 +1,23 @@
+# /api/graph/history — live check (M4R time machine, server side)
+# 2026-10-17T01:37Z · repo:flask · archivist-console unit :8787 · on top of 4e60239
+
+$ curl -s http://127.0.0.1:8787/api/graph/history   # repo scope
+  buckets: 199 UTC calendar months, 2010-04 -> 2026-10 (oldest-first; t1==next t0 tiling verified)
+  totals: 5562 commits · +144,486 / -107,320 lines · 643 files ever touched
+  merge/no-diff commits kept with 0 touches: 1734 (never dropped — count(DISTINCT c) over all commits)
+  window 2010-04 (busiest): 40 commits shown of 169; top file: flask.py (52 commits, +1327/-294)
+  method notes: ["buckets are UTC calendar months (quiet months included with zeros); merge commits carry no diff (kept with 0 touches); binary diffs count 0 lines"]
+  window notes (exact caps): ["top files capped at 12 (93 not shown)", "window commits capped at 40 (129 not shown)"]
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/history?file=src/flask/app.py'   # file scope
+  totals: 139 commits touch app.py · first 2019-06-01 · last 2026-10-07
+  latest bucket: 2026-10 commits=1
+
+# direct FalkorDB cross-checks (console numbers == graph numbers):
+  commits/add/rem/file sums equal raw aggregation: (5562, 144486, 107320, 643)
+  busiest-month total from raw: 169; top-file commits match: 52
+  app.py commit count from raw: 139
+
+# public tunnel edge: /api/graph/history -> 200 (199 buckets)
+
+# suite: pytest 118/118 · ruff + black clean · test_webapp.py history tests 6 new (new fixture: merge commit + quiet months)

@@ -25,6 +25,9 @@ Endpoints:
     GET  /api/graph/memory     memory timeline: episodes + bi-temporal facts
     GET  /api/graph/crew       crew runs: phase spine + handoff notes
                                (as_of/history views)
+    GET  /api/graph/history    repo (or one file's) past as UTC calendar-month
+                               buckets — the time machine; ?from=&to= adds a
+                               window of commits (and top files)
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
@@ -39,6 +42,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import pairwise
 from pathlib import Path
@@ -81,6 +85,14 @@ MAX_CREW_ANSWER = 600  # chars kept per phase answer
 MAX_CREW_INPUT = 1000  # chars kept per phase input (question prop)
 #: Known crew phase order; unknown roles sort after these, by timestamp.
 CREW_ROLE_ORDER = ("planner", "investigator", "verifier")
+# /api/graph/history (M4R time machine): the repo's own past as UTC
+# calendar-month buckets, plus an optional commit window. Buckets are only
+# trimmed oldest-first past the cap (noted with the exact count); the
+# window's commits and top files carry "N not shown" notes like every
+# other projection on this box.
+MAX_HISTORY_MONTHS = 600
+MAX_HISTORY_COMMITS = 40
+MAX_HISTORY_FILES = 12
 # /api/graph/induced (M4R step 3): per-step evidence ref caps, reported in
 # notes when trimmed — the same honesty rule as every other projection.
 MAX_INDUCED_STEPS = 12
@@ -287,6 +299,68 @@ def _induced_refs(
     return kept
 
 
+def _month_buckets(rows) -> list[dict]:
+    """Fold per-commit history rows (seq, ts, touches, added, removed) into
+    UTC calendar months — oldest first, quiet months included with zeros.
+
+    Calendar math lives here, not in Cypher: the endpoint promises real
+    months (``2010-04`` …), and ``ts / 2592000`` would drift into 30-day
+    blocks. Empty months are kept as zero buckets so the timeline is
+    continuous (no month silently disappears) and adjacent buckets tile
+    exactly — each carries its ``[t0, t1)`` epoch bounds, so a scrubber can
+    ask for the commits inside one bucket without re-deriving the month
+    client-side.
+    """
+    buckets: dict[tuple[int, int], dict] = {}
+    for _seq, ts, touches, added, removed in rows:
+        dt = datetime.fromtimestamp(ts, tz=UTC)
+        bucket = buckets.get((dt.year, dt.month))
+        if bucket is None:
+            year, month = dt.year, dt.month
+            next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+            bucket = {
+                "label": f"{year:04d}-{month:02d}",
+                "t0": int(datetime(year, month, 1, tzinfo=UTC).timestamp()),
+                "t1": int(datetime(next_year, next_month, 1, tzinfo=UTC).timestamp()),
+                "commits": 0,
+                "touches": 0,
+                "added": 0,
+                "removed": 0,
+            }
+            buckets[(year, month)] = bucket
+        bucket["commits"] += 1
+        bucket["touches"] += int(touches or 0)
+        bucket["added"] += int(added or 0)
+        bucket["removed"] += int(removed or 0)
+    if not buckets:
+        return []
+
+    def next_month(year: int, month: int) -> tuple[int, int]:
+        return (year + 1, 1) if month == 12 else (year, month + 1)
+
+    filled: list[dict] = []
+    year, month = min(buckets)
+    last = max(buckets)
+    while (year, month) <= last:
+        bucket = buckets.get((year, month))
+        if bucket is None:
+            next_year, next_month_no = next_month(year, month)
+            bucket = {
+                "label": f"{year:04d}-{month:02d}",
+                "t0": int(datetime(year, month, 1, tzinfo=UTC).timestamp()),
+                "t1": int(
+                    datetime(next_year, next_month_no, 1, tzinfo=UTC).timestamp()
+                ),
+                "commits": 0,
+                "touches": 0,
+                "added": 0,
+                "removed": 0,
+            }
+        filled.append(bucket)
+        year, month = next_month(year, month)
+    return filled
+
+
 class WebApp:
     """Request routing over one repo graph. One instance per server."""
 
@@ -364,6 +438,8 @@ class WebApp:
                     return self._json(200, self._graph_memory(query))
                 if path == "/api/graph/crew":
                     return self._json(200, self._graph_crew(query))
+                if path == "/api/graph/history":
+                    return self._json(200, self._graph_history(query))
                 if path == "/api/graph/find":
                     return self._json(200, self._graph_find(query))
                 if path == "/api/graph/file":
@@ -982,6 +1058,231 @@ class WebApp:
             "runs": runs_out,
             "notes": notes,
         }
+
+    def _graph_history(self, query: dict) -> dict:
+        """Time machine (M4R): the repo's past as UTC calendar-month buckets.
+
+        Scope: the whole repo, or one file (``?file=``) — file scope is how
+        the console replays a single file's (or symbol's file's) evolution.
+        ``?from=&to=`` (epoch seconds, ``[from, to)``) adds the window
+        section: its commits (newest first, capped) and, repo-wide, its top
+        files by churn.
+
+        Honesty rules that shaped the queries: merge commits carry no diff
+        and are *kept* in repo scope (0 touches — never dropped); binary
+        diffs count 0 lines (git numstat, not us); a file-scoped window
+        row carries that file's diff only — the commit may have touched
+        others, and the response does not pretend otherwise. Every cap is
+        reported in ``notes`` with exact counts.
+        """
+        file = (query.get("file") or [None])[0] or None
+        frm_raw, to_raw = (
+            (query.get("from") or [None])[0],
+            (query.get("to") or [None])[0],
+        )
+        if (frm_raw is None) != (to_raw is None):
+            raise ApiError(400, "pass both ?from= and ?to= (epoch seconds)")
+        window = None
+        if frm_raw is not None:
+            try:
+                window = (int(frm_raw), int(to_raw))
+            except (TypeError, ValueError):
+                raise ApiError(400, "from/to must be epoch seconds (integers)")
+            if window[0] >= window[1]:
+                raise ApiError(400, "from must be < to")
+
+        notes: list[str] = []
+        if file and not self._scalar(
+            "MATCH (f:File {path: $path}) RETURN count(f) AS n", {"path": file}
+        ):
+            raise ApiError(404, f"no File `{file}` in {self.graph}")
+
+        if file:
+            rows = self._ro(
+                """
+                MATCH (c:Commit)-[m:MODIFIED]->(f:File {path: $path})
+                RETURN c.seq AS seq, c.ts AS ts, 1 AS touches,
+                       coalesce(m.added, 0) AS added,
+                       coalesce(m.removed, 0) AS removed
+                ORDER BY c.seq DESC
+                """,
+                {"path": file},
+            ).result_set
+        else:
+            rows = self._ro("""
+                MATCH (c:Commit)
+                OPTIONAL MATCH (c)-[m:MODIFIED]->(f:File)
+                RETURN c.seq AS seq, c.ts AS ts, count(DISTINCT f) AS touches,
+                       sum(coalesce(m.added, 0)) AS added,
+                       sum(coalesce(m.removed, 0)) AS removed
+                ORDER BY c.seq DESC
+                """).result_set
+
+        buckets = _month_buckets(rows)
+        if len(buckets) > MAX_HISTORY_MONTHS:
+            dropped = len(buckets) - MAX_HISTORY_MONTHS
+            buckets = buckets[-MAX_HISTORY_MONTHS:]
+            notes.append(
+                f"buckets capped at {MAX_HISTORY_MONTHS} months "
+                f"({dropped} older months not shown)"
+            )
+        notes.append(
+            "buckets are UTC calendar months (quiet months included with "
+            "zeros); merge commits carry no diff (kept with 0 touches); "
+            "binary diffs count 0 lines"
+        )
+        if not rows:
+            notes.append(
+                f"no commits touch `{file}` in this graph"
+                if file
+                else "no commits in this graph"
+            )
+
+        if file:
+            files_touched = 1 if rows else 0
+        else:
+            files_touched = (
+                self._scalar(
+                    "MATCH (:Commit)-[:MODIFIED]->(f:File) "
+                    "RETURN count(DISTINCT f) AS n"
+                )
+                or 0
+            )
+        payload = {
+            "scope": {"file": file},
+            "buckets": buckets,
+            "totals": {
+                "commits": len(rows),
+                "added": sum(int(r[3] or 0) for r in rows),
+                "removed": sum(int(r[4] or 0) for r in rows),
+                "files": files_touched,
+                "first_ts": min((r[1] for r in rows), default=None),
+                "last_ts": max((r[1] for r in rows), default=None),
+            },
+            "notes": notes,
+        }
+        if window is not None:
+            payload["window"] = self._history_window(file, window, notes)
+        return payload
+
+    def _history_window(self, file: str | None, window: tuple, notes: list) -> dict:
+        """The commits (and repo-scope top files) inside one [from, to) window."""
+        frm, to = window
+        params = {"from": frm, "to": to}
+        if file:
+            rows = self._ro(
+                f"""
+                MATCH (c:Commit)-[m:MODIFIED]->(f:File {{path: $path}})
+                WHERE c.ts >= $from AND c.ts < $to
+                OPTIONAL MATCH (c)<-[:AUTHORED]-(a:Author)
+                RETURN c.sha AS sha, c.ts AS ts, c.summary AS summary,
+                       a.name AS author, coalesce(m.added, 0) AS added,
+                       coalesce(m.removed, 0) AS removed
+                ORDER BY c.ts DESC, c.seq ASC
+                LIMIT {MAX_HISTORY_COMMITS}
+                """,
+                {**params, "path": file},
+            ).result_set
+            total = (
+                self._scalar(
+                    "MATCH (c:Commit)-[:MODIFIED]->(f:File {path: $path}) "
+                    "WHERE c.ts >= $from AND c.ts < $to RETURN count(c) AS n",
+                    {**params, "path": file},
+                )
+                or 0
+            )
+            commits = [
+                {
+                    "sha": r[0][:10],
+                    "ts": r[1],
+                    "summary": r[2],
+                    "author": r[3],
+                    "added": int(r[4] or 0),
+                    "removed": int(r[5] or 0),
+                }
+                for r in rows
+            ]
+            top_files: list[dict] = []
+        else:
+            rows = self._ro(
+                f"""
+                MATCH (c:Commit)
+                WHERE c.ts >= $from AND c.ts < $to
+                OPTIONAL MATCH (c)<-[:AUTHORED]-(a:Author)
+                OPTIONAL MATCH (c)-[m:MODIFIED]->(f:File)
+                WITH c, a, count(DISTINCT f) AS touches,
+                     sum(coalesce(m.added, 0)) AS added,
+                     sum(coalesce(m.removed, 0)) AS removed
+                RETURN c.sha AS sha, c.ts AS ts, c.summary AS summary,
+                       a.name AS author, touches, added, removed
+                ORDER BY c.ts DESC, c.seq ASC
+                LIMIT {MAX_HISTORY_COMMITS}
+                """,
+                params,
+            ).result_set
+            total = (
+                self._scalar(
+                    "MATCH (c:Commit) WHERE c.ts >= $from AND c.ts < $to "
+                    "RETURN count(c) AS n",
+                    params,
+                )
+                or 0
+            )
+            commits = [
+                {
+                    "sha": r[0][:10],
+                    "ts": r[1],
+                    "summary": r[2],
+                    "author": r[3],
+                    "touches": int(r[4] or 0),
+                    "added": int(r[5] or 0),
+                    "removed": int(r[6] or 0),
+                }
+                for r in rows
+            ]
+            file_rows = self._ro(
+                f"""
+                MATCH (c:Commit)-[m:MODIFIED]->(f:File)
+                WHERE c.ts >= $from AND c.ts < $to
+                RETURN f.path AS path, count(DISTINCT c) AS commits,
+                       sum(coalesce(m.added, 0)) AS added,
+                       sum(coalesce(m.removed, 0)) AS removed
+                ORDER BY added + removed DESC, path ASC
+                LIMIT {MAX_HISTORY_FILES}
+                """,
+                params,
+            ).result_set
+            top_files = [
+                {
+                    "path": r[0],
+                    "commits": r[1],
+                    "added": int(r[2] or 0),
+                    "removed": int(r[3] or 0),
+                }
+                for r in file_rows
+            ]
+            distinct = (
+                self._scalar(
+                    "MATCH (c:Commit)-[:MODIFIED]->(f:File) "
+                    "WHERE c.ts >= $from AND c.ts < $to "
+                    "RETURN count(DISTINCT f) AS n",
+                    params,
+                )
+                or 0
+            )
+            if distinct > len(top_files):
+                notes.append(
+                    f"top files capped at {MAX_HISTORY_FILES} "
+                    f"({distinct - len(top_files)} not shown)"
+                )
+        if total > len(commits):
+            notes.append(
+                f"window commits capped at {MAX_HISTORY_COMMITS} "
+                f"({total - len(commits)} not shown)"
+            )
+        if not commits:
+            notes.append("no commits in this window")
+        return {"from": frm, "to": to, "commits": commits, "top_files": top_files}
 
     def _graph_find(self, query: dict) -> dict:
         q = (query.get("q") or [""])[0].strip()
