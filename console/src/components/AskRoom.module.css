@@ -362,6 +362,17 @@
   cursor: pointer;
 }
 
+/* The demo graph is shared; saying so before the question is asked is the
+   honest half of allowing anonymous memory writes (Gate B W2). */
+.memoryNote {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-low);
+  white-space: nowrap;
+}
+
 .submit {
   height: 32px;
   padding: 0 14px;

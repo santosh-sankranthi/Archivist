@@ -1,5 +1,5 @@
 import { formatInt, shortSha } from "../lib/format";
-import { href, navigate } from "../lib/router";
+import { href, navigate, useLocation } from "../lib/router";
 import { useSession } from "../lib/session";
 import { graphTotals } from "../lib/stats";
 import type { GraphState } from "../lib/types";
@@ -10,6 +10,30 @@ interface Props {
   onOpenPalette: () => void;
 }
 
+/** A person glyph separates the account control from the telemetry chips it
+ *  sits beside — same size, but it reads as "this is you / this is your way
+ *  in", not another status readout (Gate A W3). */
+function PersonGlyph() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+      className={styles.person}
+    >
+      <circle cx="6" cy="3.8" r="2.2" stroke="currentColor" strokeWidth="1.2" />
+      <path
+        d="M1.8 10.4c.5-2 2.2-3.2 4.2-3.2s3.7 1.2 4.2 3.2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Top bar: wordmark lockup, repo chip with live counts, LLM status, ⌘K hint. */
 export function TopBar({ state, onOpenPalette }: Props) {
   const isMac =
@@ -18,6 +42,9 @@ export function TopBar({ state, onOpenPalette }: Props) {
   const counts = totals ? { nodes: totals.nodes, edges: totals.edges } : null;
   const llm = state?.llm ?? null;
   const session = useSession();
+  const { path } = useLocation();
+  // The chip would point at the page you are already on; keep the form clean.
+  const onAuthPage = path === "/login" || path === "/signup";
 
   return (
     <header className={styles.bar}>
@@ -59,23 +86,25 @@ export function TopBar({ state, onOpenPalette }: Props) {
           {llm === null ? "llm —" : llm.configured ? `llm ${llm.model ?? "ready"}` : "llm not set"}
         </span>
 
-        {session.me?.user ? (
+        {!onAuthPage && session.me?.user ? (
           <button
             type="button"
             className={`${styles.chip} ${styles.account}`}
             onClick={() => navigate(href("/account"))}
             title="Your account"
           >
+            <PersonGlyph />
             <span className={styles.mono}>@{session.me.user.username}</span>
           </button>
-        ) : session.loaded ? (
+        ) : !onAuthPage && session.loaded ? (
           <button
             type="button"
             className={`${styles.chip} ${styles.account}`}
             onClick={() => navigate(href("/login"))}
             title="Sign in — or keep browsing the demo"
           >
-            Sign in
+            <PersonGlyph />
+            <span>Sign in</span>
           </button>
         ) : null}
 

@@ -55,6 +55,10 @@ SCRYPT_MAXMEM = 64 * 1024 * 1024  # OpenSSL needs headroom above 128*N*r
 
 LOGIN_LIMIT = 5
 LOGIN_WINDOW = 15 * 60
+#: Per-username cap across all client IPs: a distributed spray should not get
+#: unlimited guesses just because it rotates addresses. Deliberately looser
+#: than the per-IP cap so a shared NAT is not locked out by one bad actor.
+LOGIN_USER_LIMIT = 20
 SIGNUP_LIMIT = 3
 SIGNUP_WINDOW = 60 * 60
 #: Persist a session's ``last_seen`` at most this often (seconds). Sliding
@@ -221,7 +225,10 @@ class AccountStore:
 
     def _write(self, path: Path, payload: dict) -> None:
         self._ensure(path.parent)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        # Unique temp names: two threads in one process can write the same
+        # file under the store lock's protection, but a caller that forgets
+        # the lock must still not collide with a sibling (Gate B W1).
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
         data = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
@@ -325,16 +332,28 @@ class AccountStore:
         )
 
     def authenticate(self, username: object, password: object, *, ip: str = "") -> User:
-        """Verify credentials; generic failure, rate-limited by client ip."""
-        if not self.limiter.hit(f"login:{ip}", LOGIN_LIMIT, LOGIN_WINDOW):
+        """Verify credentials; generic failure, rate-limited by client ip.
+
+        Two counters: the per-IP budget is **never** cleared by a success — a
+        successful login must not buy an attacker five more guesses for the
+        next victim (Gate B C1). The per-username counter is cleared only when
+        that same username authenticates, so honest retries recover while a
+        spray against one name stays capped.
+        """
+        if not self.limiter.hit(f"login_ip:{ip}", LOGIN_LIMIT, LOGIN_WINDOW):
+            raise AccountError(429, "rate_limited", "too many attempts; try later")
+        name = username.strip().lower() if isinstance(username, str) else ""
+        if name and not self.limiter.hit(
+            f"login_user:{name[:64]}", LOGIN_USER_LIMIT, LOGIN_WINDOW
+        ):
             raise AccountError(429, "rate_limited", "too many attempts; try later")
         if not isinstance(username, str) or not isinstance(password, str):
             raise AccountError(401, "bad_credentials", "invalid username or password")
-        name = username.strip().lower()
         record = self._find(name) if USERNAME_RE.fullmatch(name) else None
         if not self._verify(password, record) or record is None:
             raise AccountError(401, "bad_credentials", "invalid username or password")
-        self.limiter.clear(f"login:{ip}")
+        if name:
+            self.limiter.clear(f"login_user:{name[:64]}")
         return User(
             uid=record["uid"],
             username=record["username"],
@@ -453,11 +472,14 @@ class AccountStore:
                 "too_many_repos",
                 f"at most {self._max_repos} repos per account",
             )
-        self._ensure(self.users_dir / uid)
-        self._write(
-            self.users_dir / uid / "repos.json",
-            {"version": 1, "repos": repos},
-        )
+        # Same process-wide lock as every other store write: the registry is
+        # live state, not an append-only log (Gate B W1).
+        with self._lock:
+            self._ensure(self.users_dir / uid)
+            self._write(
+                self.users_dir / uid / "repos.json",
+                {"version": 1, "repos": repos},
+            )
 
     def resolve_graph(
         self, user: User | None, repo_id: str | None, *, demo_graph: str

@@ -253,6 +253,13 @@ export function Landing() {
                   See a trace
                 </a>
               </Magnetic>
+              <a
+                className={styles.signIn}
+                href={href("/login")}
+                onClick={onLink(href("/login"))}
+              >
+                Sign in
+              </a>
             </div>
           </div>
 
@@ -320,6 +327,10 @@ export function Landing() {
           <span className={styles.sep} aria-hidden="true">·</span>
           <a href={href("/about")} onClick={onLink(href("/about"))}>
             ABOUT
+          </a>
+          <span className={styles.sep} aria-hidden="true">·</span>
+          <a href={href("/login")} onClick={onLink(href("/login"))}>
+            SIGN IN
           </a>
         </nav>
       </footer>

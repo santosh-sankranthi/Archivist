@@ -408,6 +408,22 @@
   background: rgba(236, 238, 244, 0.035);
 }
 
+/* Accounts are a real feature, not a footnote — but the hero has two primary
+   actions already; this stays a quiet third door (Gate A W2). */
+.signIn {
+  margin-left: 4px;
+  padding: 4px 2px;
+  font: 500 13px/1 var(--font-ui);
+  color: var(--text-low);
+  border-bottom: 1px solid transparent;
+  transition: color 160ms var(--ease), border-color 160ms var(--ease);
+}
+
+.signIn:hover {
+  color: var(--text-hi);
+  border-bottom-color: var(--amber);
+}
+
 /* ==========================================================================
    STAT RIG — instrument readout band
    ========================================================================== */

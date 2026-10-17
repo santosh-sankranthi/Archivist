@@ -82,10 +82,10 @@ def main() -> int:
         page.fill("input#field-repeat-password", PASSWORD)
         shot(page, out, "01-signup")
         page.get_by_role("button", name="Create account").click()
-        page.wait_for_url("**/console/account")
+        page.wait_for_url("**/console/account*")
         # The chip also reads @user, so assert on the card inside main —
         # then let the route rise/fade land before the still.
-        page.get_by_role("main").get_by_text(f"@{USERNAME}").wait_for()
+        page.get_by_role("main").get_by_role("heading", name=f"@{USERNAME}").wait_for()
         page.get_by_role("main").get_by_text("Member since").wait_for()
         page.wait_for_timeout(450)
         print("  ok: signup → /account shows the profile")
@@ -102,8 +102,8 @@ def main() -> int:
         page.fill("input#field-username", USERNAME)
         page.fill("input#field-password", PASSWORD)
         page.get_by_role("main").get_by_role("button", name="Sign in").click()
-        page.wait_for_url("**/console/account")
-        page.get_by_role("main").get_by_text(f"@{USERNAME}").wait_for()
+        page.wait_for_url("**/console/account*")
+        page.get_by_role("main").get_by_role("heading", name=f"@{USERNAME}").wait_for()
         page.wait_for_timeout(450)
         print("  ok: login → /account again")
         shot(page, out, "03-login-account")

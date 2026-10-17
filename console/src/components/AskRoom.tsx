@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, postJSON } from "../lib/api";
 import { formatInt } from "../lib/format";
+import { useSession } from "../lib/session";
 import {
   mergeReplays,
   queriesForStep,
@@ -53,6 +54,9 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState(initialQuestion ?? "");
   const [remember, setRemember] = useState(true);
+  const session = useSession();
+  const anonDemo =
+    session.loaded && session.me?.anonymous === true && remember;
   const [active, setActive] = useState<{ turn: number; step: number } | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   // Deep links: remember which ?q= we already ran, so a same-route
@@ -349,6 +353,11 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
           />
           remember this run
         </label>
+        {anonDemo ? (
+          <span className={styles.memoryNote}>
+            saved to the shared demo memory
+          </span>
+        ) : null}
         <button
           type="submit"
           className={styles.submit}

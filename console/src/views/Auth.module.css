@@ -66,7 +66,13 @@
   color: var(--text-low);
 }
 
+.inputWrap {
+  position: relative;
+  display: flex;
+}
+
 .input {
+  width: 100%;
   padding: 10px 12px;
   font: 400 14px/1.4 var(--font-ui);
   color: var(--text-hi);
@@ -80,6 +86,45 @@
 .input:focus-visible {
   border-color: var(--amber);
   box-shadow: 0 0 0 3px var(--amber-tint);
+}
+
+/* A refusal points at the field it belongs to (Gate A): tint + ring, never
+   colour alone — the error strip still carries the words. */
+.inputInvalid {
+  border-color: rgba(224, 108, 117, 0.65);
+}
+
+.inputInvalid:focus-visible {
+  border-color: var(--rose);
+  box-shadow: 0 0 0 3px rgba(224, 108, 117, 0.14);
+}
+
+.reveal {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  padding: 4px 6px;
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-low);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-1);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.reveal:hover,
+.reveal[aria-pressed="true"] {
+  color: var(--text-hi);
+}
+
+.reveal:focus-visible {
+  color: var(--amber);
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
 }
 
 .hint {
@@ -111,8 +156,11 @@
   filter: brightness(1.07);
 }
 
+/* Designed disabled state (Gate A N9): desaturated ink, not a washed-out
+   ember — the label keeps real contrast and the control reads off, not broken. */
 .primary:disabled {
-  opacity: 0.55;
+  color: var(--text-low);
+  background: var(--ink-800);
   cursor: default;
 }
 
@@ -144,10 +192,56 @@
   margin-top: 0;
 }
 
+.accountActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-6);
+}
+
+.accountActions .ghost {
+  margin-top: 0;
+}
+
 .foot {
   margin-top: var(--sp-6);
   font-size: 13px;
   color: var(--text-low);
+}
+
+.success {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid rgba(94, 200, 183, 0.4);
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--teal);
+  background: rgba(94, 200, 183, 0.06);
+}
+
+/* Dressed empty state (Gate A W4): a panel with a next step, not a roadmap
+   sentence floating under a heading. */
+.emptyPanel {
+  padding: var(--sp-5);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-2);
+  background: var(--ink-850);
+}
+
+.emptyTitle {
+  font: 500 13.5px/1.4 var(--font-ui);
+  color: var(--text-hi);
+}
+
+.emptyBody {
+  margin: var(--sp-2) 0 var(--sp-4);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-mid);
+}
+
+.emptyPanel .ghost {
+  margin-top: 0;
 }
 
 .link {
@@ -203,6 +297,7 @@
   flex-direction: column;
   gap: var(--sp-3);
   list-style: none;
+  padding: 0;
 }
 
 .repo {
@@ -240,4 +335,21 @@
   font-size: 12px;
   color: var(--text-low);
   overflow-wrap: anywhere;
+}
+
+/* Auth pages are shared as links; below 720px the shell's rails step aside
+   and the card gets the full width (Gate A W5). The same breakpoint hides
+   the rail in App.tsx — keep the two in sync. */
+@media (max-width: 720px) {
+  .page {
+    padding: var(--sp-8) var(--sp-4);
+  }
+
+  .card {
+    padding: var(--sp-6);
+  }
+
+  .title {
+    font-size: 26px;
+  }
 }

@@ -35,13 +35,18 @@ describe("buildPaletteItems", () => {
   it("empty query → actions + starters only, in order", () => {
     const items = buildPaletteItems("", null);
     const kinds = items.map((item) => item.kind);
-    expect(kinds).toEqual([...Array(9).fill("action"), ...Array(STARTERS.length).fill("ask")]);
+    expect(kinds).toEqual([...Array(10).fill("action"), ...Array(STARTERS.length).fill("ask")]);
     expect(items[0].id).toBe("action:/console/overview");
   });
 
   it("finds the Memory action by its words", () => {
     const items = buildPaletteItems("scrubber", null);
     expect(items[0].id).toBe("action:/console/memory");
+  });
+
+  it("finds the account action by sign-in words", () => {
+    const items = buildPaletteItems("sign in", null);
+    expect(items[0].id).toBe("action:/console/account");
   });
 
   it("finds the Crew action by its words", () => {
@@ -118,7 +123,7 @@ describe("groupPaletteItems", () => {
     const items = buildPaletteItems("", null);
     const groups = groupPaletteItems(items);
     expect(groups[0]).toMatchObject({ kind: "action", label: "Actions", start: 0 });
-    expect(groups[1]).toMatchObject({ kind: "ask", label: "Asks", start: 9 });
+    expect(groups[1]).toMatchObject({ kind: "ask", label: "Asks", start: 10 });
     expect(groups[1].items).toHaveLength(STARTERS.length);
   });
 });

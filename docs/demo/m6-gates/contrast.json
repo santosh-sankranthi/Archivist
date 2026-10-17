@@ -1,0 +1,302 @@
+{
+  "username": "review-m6-swyv",
+  "steps": [
+    {
+      "step": "landing",
+      "title": "Archivist \u2014 Every answer has a path",
+      "n_links": 6
+    },
+    {
+      "step": "overview-anon",
+      "header_buttons": [
+        "Sign in",
+        "Ctrl K"
+      ]
+    },
+    {
+      "step": "chip-navigates-to",
+      "url": "https://computer-prevent-reconstruction-belkin.trycloudflare.com/console/login"
+    },
+    {
+      "step": "signup-mismatch-client",
+      "message": "the two passwords do not match"
+    },
+    {
+      "step": "signup-weak-password-server",
+      "message": "password must be at least 10 chars"
+    },
+    {
+      "step": "account",
+      "url": "https://computer-prevent-reconstruction-belkin.trycloudflare.com/console/account",
+      "text_head": "ACCOUNT\n\n@review-m6-swyv\nMEMBER SINCE\n2026-10-17\nACCOUNT ID\n528f705e\nDEMO GRAPH\nrepo:flask\nYour repositories\n\nNone yet. The self-serve ingest wizard is coming next \u2014 then a repo URL here becomes your own graph, isolated from the demo.\n\nSign out"
+    },
+    {
+      "step": "signout",
+      "chip_back_to_signin": true
+    },
+    {
+      "step": "account-anon",
+      "text": "ACCOUNT\n\nYou are browsing as a visitor.\n\nSign in or create an account to keep your own repositories and memories. The demo graph stays readable to everyone, no account needed.\n\nSign in\nCreate account"
+    },
+    {
+      "step": "login-wrong",
+      "message": "invalid username or password"
+    },
+    {
+      "step": "login-correct",
+      "url": "https://computer-prevent-reconstruction-belkin.trycloudflare.com/console/account"
+    },
+    {
+      "step": "chip-focus",
+      "active": "_chip_zc772_43 _account_zc772_63"
+    },
+    {
+      "step": "narrow",
+      "done": true
+    },
+    {
+      "step": "reduced-motion",
+      "account_text_len": 199
+    }
+  ],
+  "contrast": {
+    "chip-anon": {
+      "chip": {
+        "color": "rgb(168, 176, 192)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "Sign in",
+        "visible": true,
+        "bgEl": "BUTTON._chip_zc772_43 _account_zc772_63"
+      },
+      "wordmark": {
+        "color": "rgb(236, 238, 244)",
+        "background": "rgb(7, 8, 11)",
+        "fontSize": "20px",
+        "fontWeight": "400",
+        "fontFamily": "\"Instrument Serif\"",
+        "letterSpacing": "0.2px",
+        "text": "Archivist",
+        "visible": true,
+        "bgEl": "BODY."
+      }
+    },
+    "signup": {
+      "eyebrow": {
+        "color": "rgb(130, 140, 160)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "10px",
+        "fontWeight": "500",
+        "fontFamily": "\"JetBrains Mono\"",
+        "letterSpacing": "1.6px",
+        "text": "Create account",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "title": {
+        "color": "rgb(236, 238, 244)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "30px",
+        "fontWeight": "400",
+        "fontFamily": "\"Instrument Serif\"",
+        "letterSpacing": "-0.3px",
+        "text": "Your own corner of the graph.",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "lead": {
+        "color": "rgb(168, 176, 192)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13.5px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "An account keeps your repositories and what the agent remembers about them separate from t",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "fieldLabel": {
+        "color": "rgb(130, 140, 160)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "11px",
+        "fontWeight": "500",
+        "fontFamily": "\"JetBrains Mono\"",
+        "letterSpacing": "0.88px",
+        "text": "Username",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "hint": {
+        "color": "rgb(130, 140, 160)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "11.5px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "3\u201324 characters: a-z, 0-9, _ or -",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "input": {
+        "color": "rgb(236, 238, 244)",
+        "background": "rgb(21, 25, 34)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "",
+        "visible": true,
+        "bgEl": "INPUT._input_xxlnu_69"
+      },
+      "primary": {
+        "color": "rgb(26, 18, 7)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13px",
+        "fontWeight": "600",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "Create account",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "foot": {
+        "color": "rgb(130, 140, 160)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "Already have one? Sign in \u2014 or keep browsing the demo.",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "footLink": {
+        "color": "rgb(233, 174, 88)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "Sign in",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      }
+    },
+    "account": {
+      "title": {
+        "color": "rgb(236, 238, 244)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "30px",
+        "fontWeight": "400",
+        "fontFamily": "\"Instrument Serif\"",
+        "letterSpacing": "-0.3px",
+        "text": "@review-m6-swyv",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "factdt": {
+        "color": "rgb(130, 140, 160)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "11px",
+        "fontWeight": "500",
+        "fontFamily": "\"JetBrains Mono\"",
+        "letterSpacing": "0.88px",
+        "text": "Member since",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "factdd": {
+        "color": "rgb(236, 238, 244)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13.5px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "2026-10-17",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "h2": {
+        "color": "rgb(236, 238, 244)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13px",
+        "fontWeight": "600",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "Your repositories",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "lead": {
+        "color": "rgb(168, 176, 192)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13.5px",
+        "fontWeight": "400",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "None yet. The self-serve ingest wizard is coming next \u2014 then a repo URL here becomes your ",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      },
+      "ghost": {
+        "color": "rgb(168, 176, 192)",
+        "background": "rgb(17, 20, 26)",
+        "fontSize": "13px",
+        "fontWeight": "500",
+        "fontFamily": "Inter",
+        "letterSpacing": "normal",
+        "text": "Sign out",
+        "visible": true,
+        "bgEl": "SECTION._card_xxlnu_10"
+      }
+    }
+  },
+  "links": {
+    "landing": [
+      {
+        "tag": "A",
+        "text": "Enter the console",
+        "href": "/console/overview",
+        "cls": "_btn_3riph_327 _btnPrimary_3riph_354"
+      },
+      {
+        "tag": "A",
+        "text": "See a trace",
+        "href": "/console/ask?q=Who+calls+url_for+%E2%80%94+and+what+would+break+if+its+signature+changes%3F",
+        "cls": "_btn_3riph_327 _btnGhost_3riph_399"
+      },
+      {
+        "tag": "A",
+        "text": "CONSOLE",
+        "href": "/console/overview",
+        "cls": ""
+      },
+      {
+        "tag": "A",
+        "text": "EXPLORER",
+        "href": "/console/explorer",
+        "cls": ""
+      },
+      {
+        "tag": "A",
+        "text": "ASK",
+        "href": "/console/ask",
+        "cls": ""
+      },
+      {
+        "tag": "A",
+        "text": "ABOUT",
+        "href": "/console/about",
+        "cls": ""
+      }
+    ]
+  },
+  "errors": [
+    "console-error: Failed to load resource: the server responded with a status of 400 ()",
+    "console-error: Failed to load resource: the server responded with a status of 401 ()"
+  ],
+  "account_text": "ACCOUNT\n\n@review-m6-swyv\nMEMBER SINCE\n2026-10-17\nACCOUNT ID\n528f705e\nDEMO GRAPH\nrepo:flask\nYour repositories\n\nNone yet. The self-serve ingest wizard is coming next \u2014 then a repo URL here becomes your own graph, isolated from the demo.\n\nSign out"
+}

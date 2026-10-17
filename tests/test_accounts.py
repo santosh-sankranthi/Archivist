@@ -140,6 +140,25 @@ def test_login_rate_limit_then_window_resets(store: AccountStore, clock: FakeClo
     )
 
 
+def test_success_does_not_reset_the_ip_budget(store: AccountStore):
+    """Gate B C1 regression: an attacker with their own account must not be
+    able to log in between victim guesses to refill the per-IP throttle."""
+    _signup(store, "attacker", "attacker password")
+    _signup(store, "victim", "victim password")
+    for _ in range(LOGIN_LIMIT - 1):
+        with pytest.raises(AccountError):
+            store.authenticate("victim", "wrong guess", ip="198.51.100.9")
+    # A successful login for a different username on the same IP must not
+    # clear the budget: one hit remains, and the next guess is refused.
+    assert (
+        store.authenticate("attacker", "attacker password", ip="198.51.100.9").username
+        == "attacker"
+    )
+    with pytest.raises(AccountError) as exc:
+        store.authenticate("victim", "wrong guess", ip="198.51.100.9")
+    assert exc.value.status == 429
+
+
 def test_login_limits_are_per_ip(store: AccountStore):
     _signup(store)
     for _ in range(LOGIN_LIMIT):
@@ -154,6 +173,29 @@ def test_login_limits_are_per_ip(store: AccountStore):
 
 
 # -- sessions --------------------------------------------------------------
+
+
+def test_write_repos_is_thread_safe(store: AccountStore):
+    """Gate B W1 regression: concurrent same-uid registry writes must not
+    collide on a temp file or leave invalid JSON behind."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    user = _signup(store)
+
+    def write(index: int) -> None:
+        store.write_repos(
+            user.uid,
+            [{"id": f"r{index}", "graph": f"user:{user.username}:{index}"}],
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(write, range(40)))
+
+    data = json.loads(
+        (store.users_dir / user.uid / "repos.json").read_text(encoding="utf-8")
+    )
+    assert data["version"] == 1 and len(data["repos"]) == 1
+    assert data["repos"][0]["id"].startswith("r")
 
 
 def test_session_roundtrip_stores_only_hash(store: AccountStore):

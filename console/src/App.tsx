@@ -6,6 +6,7 @@ import { LeftRail } from "./components/LeftRail";
 import { RightRail } from "./components/RightRail";
 import { TopBar } from "./components/TopBar";
 import { useApi } from "./lib/api";
+import { useMediaQuery } from "./lib/hooks";
 import { ROUTE_TRANSITION } from "./lib/motion";
 import { href, navigate, useLocation } from "./lib/router";
 import type { GraphState, Overview } from "./lib/types";
@@ -41,6 +42,12 @@ function Shell() {
   const overview = useApi<Overview>("/api/graph/overview");
   const [rightOpen, setRightOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const narrow = useMediaQuery("(max-width: 720px)");
+  const authRoute =
+    path === "/login" || path === "/signup" || path === "/account";
+  // Auth links are shared and opened on phones; below 720px the rails step
+  // aside so the card keeps a real line length (Gate A W5).
+  const showRail = !authRoute || !narrow;
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -95,13 +102,15 @@ function Shell() {
   return (
     <div className={styles.app}>
       <TopBar state={state.data} onOpenPalette={() => setPaletteOpen(true)} />
-      <div className={styles.main}>
-        <LeftRail
-          path={path}
-          state={state.data}
-          overview={overview.data}
-          onOpenPalette={() => setPaletteOpen(true)}
-        />
+      <div className={`${styles.main}${authRoute ? ` ${styles.mainAuth}` : ""}`}>
+        {showRail ? (
+          <LeftRail
+            path={path}
+            state={state.data}
+            overview={overview.data}
+            onOpenPalette={() => setPaletteOpen(true)}
+          />
+        ) : null}
         <main className={styles.center}>
           <AnimatePresence mode="wait">
             <motion.div
@@ -116,7 +125,9 @@ function Shell() {
             </motion.div>
           </AnimatePresence>
         </main>
-        <RightRail open={rightOpen} onToggle={() => setRightOpen((open) => !open)} />
+        {authRoute ? null : (
+          <RightRail open={rightOpen} onToggle={() => setRightOpen((open) => !open)} />
+        )}
       </div>
       <CommandPalette
         open={paletteOpen}

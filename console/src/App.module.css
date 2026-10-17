@@ -11,6 +11,12 @@
   grid-template-columns: 248px minmax(0, 1fr) auto;
 }
 
+/* Auth routes keep the rail on desktop but drop the Ask rail — there is no
+   graph work to ask about on a sign-in page. */
+.mainAuth {
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
 .center {
   min-width: 0;
   overflow-y: auto;
@@ -26,6 +32,17 @@
 @media (max-width: 1160px) {
   .main {
     grid-template-columns: 216px minmax(0, 1fr) auto;
+  }
+
+  .mainAuth {
+    grid-template-columns: 216px minmax(0, 1fr);
+  }
+}
+
+/* Keep in sync with Auth.module.css's 720px breakpoint. */
+@media (max-width: 720px) {
+  .mainAuth {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

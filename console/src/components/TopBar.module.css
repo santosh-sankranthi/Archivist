@@ -60,15 +60,24 @@
   color: var(--text-hi);
 }
 
+/* The one interactive chip in the strip: an amber hairline idle state and a
+   person glyph separate it from the static telemetry chips (Gate A W3). */
 .account {
   font: inherit;
   cursor: pointer;
+  color: var(--text-hi);
+  border-color: rgba(233, 174, 88, 0.32);
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 
 .account:hover {
   color: var(--text-hi);
-  border-color: var(--hairline-strong);
+  border-color: var(--amber);
+}
+
+.person {
+  color: var(--amber);
+  flex: none;
 }
 
 .dim {

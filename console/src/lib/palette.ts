@@ -78,6 +78,11 @@ const ACTIONS: ActionDef[] = [
     keywords: "judges architecture falkordb tracks why",
     to: href("/about"),
   },
+  {
+    label: "Go to Account",
+    keywords: "account signup sign in login sign out profile session user",
+    to: href("/account"),
+  },
 ];
 
 /** Token-subset match: every whitespace-separated token of `q` must appear
