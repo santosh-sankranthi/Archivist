@@ -52,6 +52,11 @@ const ACTIONS: ActionDef[] = [
     to: href("/memory"),
   },
   {
+    label: "Go to Crew",
+    keywords: "multi-agent planner investigator verifier phases handoffs spine runs",
+    to: href("/crew"),
+  },
+  {
     label: "Go to About",
     keywords: "judges architecture falkordb tracks why",
     to: href("/about"),

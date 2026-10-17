@@ -1,22 +1,27 @@
 # Console v2 demo captures (M4R)
 
-Re-shot **2026-10-16 ~19:13Z** against the post-gate build (console at the
-"M4R step 4 adoption" commits; served at `/console/`; ask scenes ran
-against the scripted capture server `:8789` — real loop, tools and graph,
-only the model's next-move choices are canned). `07-about` was refreshed
-~19:33Z when the diagram's index annotation was rebound to its source.
+Re-shot **2026-10-17 ~00:53Z** in one full pass after the Crew console view
+landed (M4R P1 — the rail gained "Crew", so every rail-visible still was
+re-taken for consistency). Stills run against the live server `:8787`; ask
+scenes (04–05) against the scripted capture server `:8789` — the real loop,
+tools and graph, only the model's next-move choices are canned (the status
+chip reads "scripted (demo)" inside the shot itself). The capture script
+fails on any JS error; this pass was clean, all 13 stills re-written.
 
 Notes:
 
-- `08-memory.png` / `09-memory-asof.png` (M4R P1 Memory view, added
-  ~22:35Z, re-shot 23:17Z) ran on the live server `:8787`; the as-of frame is the same
-  ledger with the scrubber driven to one minute after the newest
-  supersede — the target instant is read from the API at capture time, so
-  no fabricated moment ever lands in docs/.
+- `10-crew.png` (P1 Crew view, new this pass): the newest recorded run's
+  phase spine (planner → investigator → verifier), handoff notes queried
+  back from `HANDOFF` edges, and the investigator's per-phase trace open.
+- `08-memory.png` / `09-memory-asof.png` re-shot in the same pass; the
+  as-of frame is still read live (one minute after the newest supersede) —
+  no fabricated instant lands in docs/.
 - Numbers inside the scripted answer text were read from `repo:flask` when
   the script was written; the graph keeps growing (memory writes), so live
   counts in these PNGs can drift from any later run. The console's own
-  surfaces always read live.
+  surfaces always read live. (Re-running the ask scenes records new
+  episodes into `repo:flask` memory — by design; the memory stills show
+  the ledger as it stood at capture time.)
 - `hero-motion.gif` / `hero-motion.webm` were recorded earlier the same day
   (`scripts/record_motion.py`); the motion system is unchanged since.
 - The demo video (`docs/demo/archivist-demo.mp4`, recorded 2026-10-16 ~21:14Z)

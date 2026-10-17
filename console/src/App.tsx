@@ -11,6 +11,7 @@ import { href, navigate, useLocation } from "./lib/router";
 import type { GraphState, Overview } from "./lib/types";
 import { About } from "./views/About";
 import { AskView } from "./views/AskView";
+import { Crew } from "./views/Crew";
 import { Explorer } from "./views/Explorer";
 import { Home } from "./views/Home";
 import { Landing } from "./views/Landing";
@@ -67,6 +68,8 @@ function Shell() {
     view = <AskView query={query} />;
   } else if (path === "/memory") {
     view = <Memory />;
+  } else if (path === "/crew") {
+    view = <Crew />;
   } else if (path === "/about") {
     view = <About state={state.data} stateError={state.error?.message ?? null} />;
   } else {

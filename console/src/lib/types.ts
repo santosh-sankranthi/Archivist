@@ -262,3 +262,48 @@ export interface MemoryResponse {
   chain_facts: MemoryChainFact[];
   notes: string[];
 }
+
+/** `/api/graph/crew` — crew runs as graph state: one phase episode per
+ *  role, grouped into runs, handoff notes read back from
+ *  `(:Episode)-[:HANDOFF]->(:Episode)` edges. `status` is honest: only a
+ *  full planner→investigator→verifier spine with no phase errors reads
+ *  `complete`; anything else is `partial` or `interrupted`. */
+export interface CrewPhase {
+  id: string;
+  role: string;
+  ts: number | null;
+  question: string | null;
+  input_truncated: boolean;
+  answer: string | null;
+  answer_truncated: boolean;
+  duration_ms: number | null;
+  steps: number | null;
+  queries: number | null;
+  llm_calls: number | null;
+  partial: boolean | null;
+  error: string | null;
+}
+
+export interface CrewHandoff {
+  from: string;
+  to: string;
+  note: string | null;
+  ts: number | null;
+}
+
+export interface CrewRun {
+  run: string;
+  question: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  status: "complete" | "partial" | "interrupted";
+  phases: CrewPhase[];
+  handoffs: CrewHandoff[];
+}
+
+export interface CrewResponse {
+  graph: string;
+  counts: { runs: number; phases: number; handoffs: number };
+  runs: CrewRun[];
+  notes: string[];
+}

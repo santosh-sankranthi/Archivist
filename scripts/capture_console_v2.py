@@ -13,11 +13,11 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
         --out docs/demo/m4r
 
 Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
-(04–05), palette (06), about (07), memory (08–09). Waits on the canvas
-`data-settled="1"` stamp, on scripted answer text, and on the landing's
-`window.__archivist.stagedAt` timeline token instead of fixed sleeps
-wherever possible; fails loudly on any JS error so a broken build never
-lands in docs/.
+(04–05), palette (06), about (07), memory (08–09), crew (10). Waits on the
+canvas `data-settled="1"` stamp, on scripted answer text, and on the
+landing's `window.__archivist.stagedAt` timeline token instead of fixed
+sleeps wherever possible; fails loudly on any JS error so a broken build
+never lands in docs/.
 """
 
 from __future__ import annotations
@@ -239,6 +239,28 @@ def run_memory(page: Page, base: str, out: Path) -> None:
     shot(page, out, "09-memory-asof")
 
 
+def run_crew(page: Page, base: str, out: Path) -> None:
+    """10: crew — phase spine + handoff notes; one phase detail open.
+
+    Runs on live data: the newest recorded crew run. Opens the second
+    spine card (the investigator, in the recorded order) so the shot
+    shows the spine, the graph-queried handoff notes and a per-phase
+    trace at once.
+    """
+    page.goto(f"{base}/console/crew", wait_until="load")
+    page.wait_for_selector("[data-run]", timeout=20000)
+    page.wait_for_selector("[data-link]", timeout=20000)
+    page.wait_for_timeout(800)  # card stagger + note clamp settle
+    cards = page.locator("[data-phase]")
+    count = cards.count()
+    if count == 0:
+        raise RuntimeError("crew view renders no phase cards")
+    cards.nth(1 if count > 1 else 0).click()
+    page.locator('section[aria-label^="Phase detail"]').wait_for(timeout=10000)
+    page.wait_for_timeout(700)  # detail rise + chips land
+    shot(page, out, "10-crew")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
@@ -258,6 +280,7 @@ def main() -> int:
             "palette",
             "about",
             "memory",
+            "crew",
         ],
         default="all",
     )
@@ -297,6 +320,8 @@ def main() -> int:
             run_about(page, base, out)
         if args.scene in ("all", "memory"):
             run_memory(page, base, out)
+        if args.scene in ("all", "crew"):
+            run_crew(page, base, out)
 
         browser.close()
 
