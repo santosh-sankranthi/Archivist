@@ -10,6 +10,7 @@ import pytest
 
 from archivist.accounts import (
     LOGIN_LIMIT,
+    LOGIN_USER_LIMIT,
     LOGIN_WINDOW,
     SESSION_TTL,
     SIGNUP_LIMIT,
@@ -156,6 +157,48 @@ def test_success_does_not_reset_the_ip_budget(store: AccountStore):
     )
     with pytest.raises(AccountError) as exc:
         store.authenticate("victim", "wrong guess", ip="198.51.100.9")
+    assert exc.value.status == 429
+
+
+def test_username_cap_bounds_a_distributed_spray(tmp_path: Path, clock: FakeClock):
+    """Gate B r2 S1: rotating client IPs must not buy unlimited guesses
+    against one username — the per-username cap ends the spray."""
+    # Small-n store: limiter logic under test, not hashing cost.
+    store = AccountStore(tmp_path / "data", clock=clock, scrypt_n=2**10)
+    _signup(store)
+    for i in range(LOGIN_USER_LIMIT):
+        # A distinct IP per guess, so the per-IP budget never trips.
+        with pytest.raises(AccountError) as exc:
+            store.authenticate("santosh", "wrong guess", ip=f"198.51.100.{i}")
+        assert exc.value.status == 401
+    with pytest.raises(AccountError) as exc:
+        store.authenticate("santosh", "wrong guess", ip="203.0.113.250")
+    assert exc.value.status == 429
+
+
+def test_own_success_clears_only_its_username_bucket(tmp_path: Path, clock: FakeClock):
+    """Gate B r2 S1: a user's own success empties their username bucket
+    (honest retries recover) while the per-IP budget — shared by everyone
+    behind one NAT — is never refilled by any success."""
+    store = AccountStore(tmp_path / "data", clock=clock, scrypt_n=2**10)
+    _signup(store)
+    for _ in range(4):
+        with pytest.raises(AccountError):
+            store.authenticate("santosh", "wrong guess", ip="198.51.100.7")
+    # The correct password consumes the 5th of 5 per-IP hits and succeeds.
+    user = store.authenticate("santosh", "correct horse", ip="198.51.100.7")
+    assert user.username == "santosh"
+    # The username bucket was cleared: a fresh-IP spray gets the full cap.
+    for i in range(LOGIN_USER_LIMIT):
+        with pytest.raises(AccountError) as exc:
+            store.authenticate("santosh", "wrong guess", ip=f"203.0.113.{i}")
+        assert exc.value.status == 401
+    with pytest.raises(AccountError) as exc:
+        store.authenticate("santosh", "wrong guess", ip="192.0.2.77")
+    assert exc.value.status == 429
+    # The per-IP budget was NOT cleared by the success above: spent.
+    with pytest.raises(AccountError) as exc:
+        store.authenticate("santosh", "correct horse", ip="198.51.100.7")
     assert exc.value.status == 429
 
 

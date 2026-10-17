@@ -41,7 +41,11 @@ def browser_env() -> dict[str, str]:
 def shot(page: Page, out: Path, name: str) -> None:
     path = out / f"{name}.png"
     page.screenshot(path=str(path))
-    print(f"  wrote {path} ({path.stat().st_size // 1024} KiB)")
+    size = path.stat().st_size
+    if size == 0:  # a 0-byte PNG reads as evidence but is none (M6 r2)
+        print(f"  ERROR: empty screenshot {path}", file=sys.stderr)
+        raise SystemExit(2)
+    print(f"  wrote {path} ({size // 1024} KiB)")
 
 
 def main() -> int:

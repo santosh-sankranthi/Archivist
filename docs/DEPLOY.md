@@ -116,7 +116,12 @@ published ports bind to `127.0.0.1` only. The ask room needs a key — `ARCHIVIS
   require JSON + same-origin. Login/signup are rate-limited per client ip —
   the key is `CF-Connecting-IP` through the tunnel and the socket peer
   otherwise, so exposing the port directly makes that header spoofable.
-  Limits are in-process and reset on restart. Graph reads are still
+  Limits are in-process and reset on restart. Logins carry two counters:
+  per client ip (5 attempts / 15 min — successful logins count and never
+  refill, so everyone behind one NAT shares that budget) and per username
+  (20 / 15 min across ips, cleared only when that username logs in
+  successfully, so honest retries recover while a distributed spray stays
+  capped). Graph reads are still
   `ro_query`-only; the web layer's writes are auth state and memory
   episodes/facts, and memory writes are refused for signed-in users on the
   shared demo graph. Accounts data is not encrypted at rest — it is a
