@@ -1,0 +1,28 @@
+# /api/graph/impact — live check (M4R blast radius, server side)
+# 2026-10-17T03:03Z · repo:flask · archivist-console unit :8787
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/impact?symbol=stream_with_context&depth=4'
+  status=200 · target=stream_with_context (src/flask/helpers.py:63, function)
+  summary: {"affected_files": 6, "affected_test_files": 4, "direct_callers": 5, "max_hops": 3, "shown": 9, "transitive_callers": 9, "truncated": false, "walk_capped": false}
+  levels: [(1, ['stream_with_context.decorator', '_stream', 'TestStreaming.test_streaming_with_context.index', 'TestStreaming.test_streaming_with_context_and_custom_close.index', 'test_client_pop_all_preserved.index']), (2, ['stream_template', 'stream_template_string']), (3, ['test_simple_stream.index', 'return_template_stream'])]
+  files (6): [('src/flask/helpers.py', 1, 'src'), ('src/flask/templating.py', 3, 'src'), ('tests/test_helpers.py', 2, 'test'), ('tests/test_testing.py', 1, 'test'), ('tests/test_templating.py', 1, 'test'), ('tests/type_check/typing_route.py', 1, 'test')]
+  notes: ["target = stream_with_context (src/flask/helpers.py)", "test files are a path heuristic (tests/, test_*.py, *_test.py), not runtime evidence"]
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/impact?symbol=stream_with_context&depth=4&limit=5'  # cap
+  shown=5 of 9 · truncated=True
+  cap note: ['showing 5 of 9 affected symbols (limit=5)']
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/impact?symbol=test_make_response'  # entry point
+  levels=[] · summary={"affected_files": 0, "affected_test_files": 0, "direct_callers": 0, "max_hops": 0, "shown": 0, "transitive_callers": 0, "truncated": false, "walk_capped": false}
+  entry note: ['no callers within 4 hops — this symbol is an entry point in this graph (nothing resolved calls it)']
+
+# direct FalkorDB cross-checks (console numbers == graph numbers):
+  distinct non-weak callers at depth 4: 9 (endpoint 9) · hop1: 5 (endpoint 5)
+  max hops from raw: 3 (endpoint 3)
+  caller files from raw: 6 (endpoint 6)
+  test files from raw path filter: 4 (endpoint 4)
+  weak-only callers from raw: 0 (note says: [])
+
+# public tunnel edge: /api/graph/impact -> 200 (9 callers, 6 files)
+
+# suite: pytest 122/122 · ruff + black clean · test_webapp.py impact tests 4 new (new fixture: 3-hop cone + tests/ caller)

@@ -1138,3 +1138,113 @@ def test_history_window_validates_params(history_server: str):
     assert status == 200
     assert data["window"]["commits"] == [] and data["window"]["top_files"] == []
     assert any("no commits in this window" in n for n in data["notes"])
+
+
+# -- Blast radius (/api/graph/impact) ----------------------------------------
+
+
+@pytest.fixture()
+def impact_server(tmp_path, falkordb_or_skip, temp_graph):
+    """A three-hop cone plus one caller that lives in a tests/ directory."""
+    host, port = falkordb_or_skip
+    repo = tmp_path / "impact"
+    repo.mkdir()
+    (repo / "tests").mkdir()
+    _commit(repo, "init", "-q", "-b", "main")
+    (repo / "pkg.py").write_text(
+        "def leaf():\n"
+        "    return 1\n"
+        "\n"
+        "\n"
+        "def middle():\n"
+        "    return leaf()\n"
+        "\n"
+        "\n"
+        "def top():\n"
+        "    return middle()\n"
+    )
+    (repo / "tests" / "test_pkg.py").write_text(
+        "from pkg import top\n\n\ndef test_top():\n    assert top() == 1\n"
+    )
+    _commit(repo, "add", ".")
+    _commit(repo, "commit", "-q", "-m", "impact fixture")
+    ingest(repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+def test_impact_walks_transitive_callers_by_level(impact_server: str):
+    status, data = get_json(impact_server + "/api/graph/impact?symbol=leaf&depth=4")
+    assert status == 200
+    assert data["target"]["qualname"] == "leaf"
+    assert data["target"]["file"] == "pkg.py"
+    # One row per affected symbol at its shortest distance: middle (1),
+    # top (2), test_top (3) — never once per path.
+    levels = {level["hops"]: level["symbols"] for level in data["levels"]}
+    assert [level["hops"] for level in data["levels"]] == [1, 2, 3]
+    assert [row["qualname"] for row in levels[1]] == ["middle"]
+    assert [row["qualname"] for row in levels[2]] == ["top"]
+    assert [row["qualname"] for row in levels[3]] == ["test_top"]
+    # Chains start at the caller and end at the target (drawable as edges).
+    chain = levels[3][0]["chain"]
+    assert [node["qualname"] for node in chain] == [
+        "test_top",
+        "top",
+        "middle",
+        "leaf",
+    ]
+    summary = data["summary"]
+    assert summary == {
+        "direct_callers": 1,
+        "transitive_callers": 3,
+        "affected_files": 2,
+        "affected_test_files": 1,
+        "max_hops": 3,
+        "shown": 3,
+        "truncated": False,
+        "walk_capped": False,
+    }
+    files = {row["path"]: row for row in data["files"]}
+    assert files["pkg.py"] == {
+        "path": "pkg.py",
+        "symbols": 2,
+        "min_hops": 1,
+        "tests": False,
+    }
+    assert files["tests/test_pkg.py"]["tests"] is True
+    assert any("path heuristic" in note for note in data["notes"])
+
+
+def test_impact_depth_limit_and_honest_caps(impact_server: str, monkeypatch):
+    _, shallow = get_json(impact_server + "/api/graph/impact?symbol=leaf&depth=1")
+    assert shallow["summary"]["transitive_callers"] == 1
+    assert [level["hops"] for level in shallow["levels"]] == [1]
+
+    # A limit cut is disclosed with exact counts, never silent.
+    _, capped = get_json(impact_server + "/api/graph/impact?symbol=leaf&limit=2")
+    assert capped["summary"]["shown"] == 2
+    assert capped["summary"]["truncated"] is True
+    assert capped["summary"]["transitive_callers"] == 3
+    assert "showing 2 of 3 affected symbols (limit=2)" in capped["notes"]
+
+
+def test_impact_entry_points_are_a_real_answer(impact_server: str):
+    status, data = get_json(impact_server + "/api/graph/impact?symbol=test_top")
+    assert status == 200
+    assert data["levels"] == []
+    assert data["summary"]["transitive_callers"] == 0
+    assert any("entry point" in note for note in data["notes"])
+
+
+def test_impact_refuses_bad_or_ambiguous_symbols(impact_server: str):
+    base = impact_server + "/api/graph/impact"
+    assert status_only(base) == 400  # symbol missing
+    assert status_only(base + "?symbol=nope") == 404
+    assert status_only(base + "?symbol=leaf&depth=0") == 400
+    assert status_only(base + "?symbol=leaf&depth=x") == 400
+    assert status_only(base + "?symbol=leaf&limit=0") == 400

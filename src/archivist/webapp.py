@@ -28,6 +28,8 @@ Endpoints:
     GET  /api/graph/history    repo (or one file's) past as UTC calendar-month
                                buckets — the time machine; ?from=&to= adds a
                                window of commits (and top files)
+    GET  /api/graph/impact     blast radius of one symbol — the transitive
+                               reverse-CALLS cone, with a file rollup
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
@@ -93,6 +95,12 @@ CREW_ROLE_ORDER = ("planner", "investigator", "verifier")
 MAX_HISTORY_MONTHS = 600
 MAX_HISTORY_COMMITS = 40
 MAX_HISTORY_FILES = 12
+# /api/graph/impact (M4R blast radius): the inverted call cone above one
+# symbol. The walk itself is capped so a hub cannot turn one request into an
+# unbounded path explosion; every trim — paths, symbols, files — is noted.
+MAX_IMPACT_SYMBOLS = 150
+MAX_IMPACT_FILES = 60
+MAX_IMPACT_DEPTH = 6
 # /api/graph/induced (M4R step 3): per-step evidence ref caps, reported in
 # notes when trimmed — the same honesty rule as every other projection.
 MAX_INDUCED_STEPS = 12
@@ -299,6 +307,24 @@ def _induced_refs(
     return kept
 
 
+def _is_test_path(path: str) -> bool:
+    """Path-only test heuristic: test dirs or ``test_*.py`` / ``*_test.py``.
+
+    The graph carries no test-runner edges, so this can only say where a
+    file usually lives. The payload discloses the heuristic in ``notes``
+    rather than mistaking it for runtime evidence.
+    """
+    parts = path.replace("\\", "/").lower().split("/")
+    name = parts[-1]
+    return (
+        any(
+            part in {"test", "tests", "testing", "spec", "specs"} for part in parts[:-1]
+        )
+        or name.startswith("test_")
+        or name.endswith(("_test.py", "_test.ts", ".test.ts", ".test.tsx"))
+    )
+
+
 def _month_buckets(rows) -> list[dict]:
     """Fold per-commit history rows (seq, ts, touches, added, removed) into
     UTC calendar months — oldest first, quiet months included with zeros.
@@ -440,6 +466,8 @@ class WebApp:
                     return self._json(200, self._graph_crew(query))
                 if path == "/api/graph/history":
                     return self._json(200, self._graph_history(query))
+                if path == "/api/graph/impact":
+                    return self._json(200, self._graph_impact(query))
                 if path == "/api/graph/find":
                     return self._json(200, self._graph_find(query))
                 if path == "/api/graph/file":
@@ -1283,6 +1311,246 @@ class WebApp:
         if not commits:
             notes.append("no commits in this window")
         return {"from": frm, "to": to, "commits": commits, "top_files": top_files}
+
+    def _graph_impact(self, query: dict) -> dict:
+        """Blast radius (M4R): the inverted call cone above one symbol.
+
+        "What breaks if this changes?" is a reverse CALLS walk — the same
+        primitive as the ``callers`` tool, widened for the console: one row
+        per affected symbol at its shortest distance (counted once, not once
+        per path), each carrying the chain that reaches the target, plus a
+        file rollup split into source and test files.
+
+        Honesty rules: guessed (weak) edges are excluded by default and the
+        peers reachable only through them are counted; every cap (walk,
+        symbol limit, file display) is stated with exact counts; a symbol
+        with no callers is a real answer — an entry point — not an empty
+        error. Test detection is a path heuristic, and says so.
+        """
+        symbol = (query.get("symbol") or [""])[0].strip()
+        if not symbol:
+            raise ApiError(400, "pass ?symbol=<name or qualname>")
+        file = (query.get("file") or [None])[0] or None
+        depth_raw = (query.get("depth") or [None])[0]
+        depth = 4
+        if depth_raw is not None:
+            try:
+                depth = int(depth_raw)
+            except ValueError:
+                raise ApiError(400, "depth must be an integer")
+            if not 1 <= depth <= MAX_IMPACT_DEPTH:
+                raise ApiError(400, f"depth must be 1..{MAX_IMPACT_DEPTH}")
+        limit_raw = (query.get("limit") or [None])[0]
+        limit = 120
+        if limit_raw is not None:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise ApiError(400, "limit must be an integer")
+            if not 1 <= limit <= MAX_IMPACT_SYMBOLS:
+                raise ApiError(400, f"limit must be 1..{MAX_IMPACT_SYMBOLS}")
+        include_weak = (query.get("include_weak") or ["0"])[0].lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        scope = " AND s.file = $file" if file else ""
+        params: dict = {"name": symbol, "limit": 25}
+        if file:
+            params["file"] = file
+        candidates = self._ro(
+            f"""
+            MATCH (s:Symbol)
+            WHERE (s.qualname = $name OR s.name = $name){scope}
+            RETURN s.file AS file, s.qualname AS qualname, s.name AS name,
+                   s.kind AS kind, s.lineno AS lineno,
+                   s.qualname = $name AS qual_hit
+            ORDER BY qual_hit DESC, file, qualname
+            LIMIT $limit
+            """,
+            params,
+        ).result_set
+        pool = [row for row in candidates if row[5]] or list(candidates)
+        where = f" in {file}" if file else ""
+        if not pool:
+            raise ApiError(404, f"no Symbol named `{symbol}`{where}")
+        if len(pool) > 1:
+            names = ", ".join(f"{row[0]}:{row[1]}" for row in pool[:8])
+            raise ApiError(
+                400,
+                "ambiguous symbol — pass ?file= or the exact qualname; "
+                f"candidates: {names}",
+            )
+        target = dict(
+            zip(
+                ("file", "qualname", "name", "kind", "lineno"),
+                pool[0][:5],
+                strict=True,
+            )
+        )
+
+        conditions = ["(c.file <> $file OR c.qualname <> $qualname)"]
+        if not include_weak:
+            conditions.append(
+                "all(r IN relationships(p) WHERE coalesce(r.weak, false) = false)"
+            )
+        cap = max(limit * 8, 400)
+        rows = self._ro(
+            f"""
+            MATCH p=(c:Symbol)-[:CALLS*1..{depth}]->
+                    (t:Symbol {{file: $file, qualname: $qualname}})
+            WHERE {" AND ".join(conditions)}
+            RETURN c.file AS file, c.qualname AS caller, c.name AS name,
+                   c.kind AS kind, length(p) AS hops,
+                   [n IN nodes(p) | {{file: n.file, qualname: n.qualname}}] AS chain,
+                   [r IN relationships(p) | coalesce(r.count, 0)] AS counts,
+                   [r IN relationships(p) | coalesce(r.weak, false)] AS weaks
+            ORDER BY hops, file, caller
+            LIMIT {cap}
+            """,
+            {"file": target["file"], "qualname": target["qualname"]},
+        ).result_set
+
+        deduped: dict[tuple[str, str], dict] = {}
+        for row in rows:
+            key = (row[0], row[1])
+            entry = {
+                "file": row[0],
+                "qualname": row[1],
+                "name": row[2],
+                "kind": row[3],
+                "hops": int(row[4]),
+                "chain": row[5],
+                "counts": row[6],
+                "weak": any(bool(flag) for flag in row[7]),
+            }
+            kept = deduped.get(key)
+            if kept is None:
+                deduped[key] = entry
+            elif kept["weak"] and not entry["weak"]:
+                # Same caller, same shortest distance: keep the verified
+                # chain over a guessed one rather than the first row seen.
+                deduped[key] = entry
+
+        ordered = sorted(
+            deduped.values(),
+            key=lambda row: (row["hops"], row["file"], row["qualname"]),
+        )
+        shown = ordered[:limit]
+        truncated = len(ordered) > limit
+        walk_capped = len(rows) >= cap
+
+        files_map: dict[str, dict] = {}
+        for row in shown:
+            item = files_map.get(row["file"])
+            if item is None:
+                files_map[row["file"]] = {
+                    "path": row["file"],
+                    "symbols": 1,
+                    "min_hops": row["hops"],
+                    "tests": _is_test_path(row["file"]),
+                }
+            else:
+                item["symbols"] += 1
+                item["min_hops"] = min(item["min_hops"], row["hops"])
+        files_total = len(files_map)
+        test_files = sum(1 for item in files_map.values() if item["tests"])
+        files = sorted(
+            files_map.values(), key=lambda item: (item["min_hops"], item["path"])
+        )
+
+        notes = [f"target = {target['qualname']} ({target['file']})"]
+        if not ordered:
+            notes.append(
+                f"no callers within {depth} hops — this symbol is an entry "
+                "point in this graph (nothing resolved calls it)"
+            )
+        if walk_capped:
+            notes.append(
+                f"call-path walk hit its cap ({cap} paths) — counts below "
+                "are floors, not a census"
+            )
+        if truncated:
+            scope_note = "at least " if walk_capped else ""
+            notes.append(
+                f"showing {limit} of {scope_note}{len(ordered)} affected "
+                f"symbols (limit={limit})"
+            )
+        if not include_weak and ordered:
+            hidden_rows = self._ro(
+                f"""
+                MATCH p=(c:Symbol)-[:CALLS*1..{depth}]->
+                        (t:Symbol {{file: $file, qualname: $qualname}})
+                WHERE (c.file <> $file OR c.qualname <> $qualname)
+                  AND any(r IN relationships(p) WHERE coalesce(r.weak, false))
+                RETURN DISTINCT c.file AS file, c.qualname AS qualname
+                LIMIT {cap}
+                """,
+                {"file": target["file"], "qualname": target["qualname"]},
+            ).result_set
+            hidden = {(row[0], row[1]) for row in hidden_rows} - {
+                (row["file"], row["qualname"]) for row in shown
+            }
+            if hidden:
+                floor = "at least " if len(hidden_rows) >= cap else ""
+                notes.append(
+                    f"{floor}{len(hidden)} caller(s) hidden by the weak-edge "
+                    "filter — pass include_weak=true to include"
+                )
+        if files_total > MAX_IMPACT_FILES:
+            notes.append(
+                f"affected files capped at {MAX_IMPACT_FILES} "
+                f"({files_total - MAX_IMPACT_FILES} not shown)"
+            )
+            files = files[:MAX_IMPACT_FILES]
+        if shown:
+            notes.append(
+                "test files are a path heuristic (tests/, test_*.py, "
+                "*_test.py), not runtime evidence"
+            )
+            if not test_files:
+                notes.append(
+                    "no test file appears in the blast radius — review test "
+                    "coverage before changing this"
+                )
+
+        levels: dict[int, list] = {}
+        for row in shown:
+            levels.setdefault(row["hops"], []).append(
+                {
+                    "file": row["file"],
+                    "qualname": row["qualname"],
+                    "name": row["name"],
+                    "kind": row["kind"],
+                    "chain": row["chain"],
+                    "counts": row["counts"],
+                    "weak": row["weak"],
+                }
+            )
+        return {
+            "target": target,
+            "params": {
+                "depth": depth,
+                "include_weak": include_weak,
+                "limit": limit,
+            },
+            "summary": {
+                "direct_callers": sum(1 for row in ordered if row["hops"] == 1),
+                "transitive_callers": len(ordered),
+                "affected_files": files_total,
+                "affected_test_files": test_files,
+                "max_hops": max((row["hops"] for row in ordered), default=0),
+                "shown": len(shown),
+                "truncated": truncated or files_total > MAX_IMPACT_FILES,
+                "walk_capped": walk_capped,
+            },
+            "levels": [
+                {"hops": hops, "symbols": levels[hops]} for hops in sorted(levels)
+            ],
+            "files": files,
+            "notes": notes,
+        }
 
     def _graph_find(self, query: dict) -> dict:
         q = (query.get("q") or [""])[0].strip()
