@@ -11,6 +11,7 @@ import { href, navigate, useLocation } from "./lib/router";
 import type { GraphState, Overview } from "./lib/types";
 import { About } from "./views/About";
 import { AskView } from "./views/AskView";
+import { AccountView, LoginView, SignupView } from "./views/Auth";
 import { Crew } from "./views/Crew";
 import { Explorer } from "./views/Explorer";
 import { History } from "./views/History";
@@ -81,6 +82,12 @@ function Shell() {
     view = <Ownership />;
   } else if (path === "/about") {
     view = <About state={state.data} stateError={state.error?.message ?? null} />;
+  } else if (path === "/login") {
+    view = <LoginView />;
+  } else if (path === "/signup") {
+    view = <SignupView />;
+  } else if (path === "/account") {
+    view = <AccountView />;
   } else {
     view = <OffMap />;
   }

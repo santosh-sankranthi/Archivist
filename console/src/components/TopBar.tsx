@@ -1,4 +1,6 @@
 import { formatInt, shortSha } from "../lib/format";
+import { href, navigate } from "../lib/router";
+import { useSession } from "../lib/session";
 import { graphTotals } from "../lib/stats";
 import type { GraphState } from "../lib/types";
 import styles from "./TopBar.module.css";
@@ -15,6 +17,7 @@ export function TopBar({ state, onOpenPalette }: Props) {
   const totals = state ? graphTotals(state) : null;
   const counts = totals ? { nodes: totals.nodes, edges: totals.edges } : null;
   const llm = state?.llm ?? null;
+  const session = useSession();
 
   return (
     <header className={styles.bar}>
@@ -55,6 +58,26 @@ export function TopBar({ state, onOpenPalette }: Props) {
           />
           {llm === null ? "llm —" : llm.configured ? `llm ${llm.model ?? "ready"}` : "llm not set"}
         </span>
+
+        {session.me?.user ? (
+          <button
+            type="button"
+            className={`${styles.chip} ${styles.account}`}
+            onClick={() => navigate(href("/account"))}
+            title="Your account"
+          >
+            <span className={styles.mono}>@{session.me.user.username}</span>
+          </button>
+        ) : session.loaded ? (
+          <button
+            type="button"
+            className={`${styles.chip} ${styles.account}`}
+            onClick={() => navigate(href("/login"))}
+            title="Sign in — or keep browsing the demo"
+          >
+            Sign in
+          </button>
+        ) : null}
 
         <button
           type="button"

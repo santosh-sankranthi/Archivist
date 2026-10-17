@@ -60,6 +60,17 @@
   color: var(--text-hi);
 }
 
+.account {
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+.account:hover {
+  color: var(--text-hi);
+  border-color: var(--hairline-strong);
+}
+
 .dim {
   color: var(--text-low);
 }
