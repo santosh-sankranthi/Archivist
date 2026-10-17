@@ -46,12 +46,20 @@ export async function getJSON<T>(url: string): Promise<T> {
   return body as T;
 }
 
-export async function postJSON<T>(url: string, payload: unknown): Promise<T> {
+export async function postJSON<T>(
+  url: string,
+  payload: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        ...headers,
+      },
       body: JSON.stringify(payload),
     });
   } catch {

@@ -8,6 +8,7 @@ import styles from "./TopBar.module.css";
 interface Props {
   state: GraphState | null;
   onOpenPalette: () => void;
+  onOpenSettings: () => void;
 }
 
 /** A person glyph separates the account control from the telemetry chips it
@@ -35,7 +36,7 @@ function PersonGlyph() {
 }
 
 /** Top bar: wordmark lockup, repo chip with live counts, LLM status, ⌘K hint. */
-export function TopBar({ state, onOpenPalette }: Props) {
+export function TopBar({ state, onOpenPalette, onOpenSettings }: Props) {
   const isMac =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const totals = state ? graphTotals(state) : null;
@@ -116,6 +117,15 @@ export function TopBar({ state, onOpenPalette }: Props) {
           title="Command palette — files, symbols, actions"
         >
           {isMac ? "⌘K" : "Ctrl K"}
+        </button>
+        <button
+          type="button"
+          className={styles.settings}
+          onClick={onOpenSettings}
+          aria-label="Open settings"
+          title="Settings — bring your own LLM key"
+        >
+          settings
         </button>
       </div>
     </header>

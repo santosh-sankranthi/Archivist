@@ -120,6 +120,25 @@
   border-color: var(--hairline-strong);
 }
 
+.settings {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-mid);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  padding: 4px 8px;
+  background: var(--ink-850);
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.settings:hover {
+  color: var(--text-hi);
+  border-color: var(--hairline-strong);
+}
+
 /* Degrade gracefully toward 1024px: drop the counts chip first. */
 @media (max-width: 1160px) {
   .right > .chip:nth-of-type(2) {

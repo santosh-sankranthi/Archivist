@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { LeftRail } from "./components/LeftRail";
 import { RightRail } from "./components/RightRail";
+import { Settings } from "./components/Settings";
 import { TopBar } from "./components/TopBar";
 import { useApi } from "./lib/api";
 import { useMediaQuery } from "./lib/hooks";
@@ -42,6 +43,7 @@ function Shell() {
   const overview = useApi<Overview>("/api/graph/overview");
   const [rightOpen, setRightOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const narrow = useMediaQuery("(max-width: 720px)");
   const authRoute =
     path === "/login" || path === "/signup" || path === "/account";
@@ -103,7 +105,7 @@ function Shell() {
 
   return (
     <div className={styles.app}>
-      <TopBar state={state.data} onOpenPalette={() => setPaletteOpen(true)} />
+      <TopBar state={state.data} onOpenPalette={() => setPaletteOpen(true)} onOpenSettings={() => setSettingsOpen(true)} />
       <div className={`${styles.main}${authRoute ? ` ${styles.mainAuth}` : ""}`}>
         {showRail ? (
             <LeftRail
@@ -137,6 +139,7 @@ function Shell() {
         graph={state.data?.graph ?? null}
         onClose={() => setPaletteOpen(false)}
       />
+      {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );
 }
