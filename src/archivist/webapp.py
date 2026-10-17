@@ -35,6 +35,13 @@ Endpoints:
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
+    POST /api/llm/test         try one request's LLM settings (tiny completion)
+
+Visitors may bring their own LLM key: the ``X-Archivist-LLM-Base|Model|Key``
+request headers override the server's settings for that one request. The
+server never stores or logs the key. Asks that spend the *server's* demo
+key are capped per client (:data:`DEMO_QUOTA_DEFAULT` per hour; 429 past
+the cap, with a hint to bring a key).
 
 The server is bounded: at most ``MAX_INFLIGHT`` requests are served at once,
 so the console can face a tunnel (M5) without turning a burst of stalled
@@ -43,10 +50,12 @@ connections into unbounded threads on a 4.8 GB box.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -62,12 +71,13 @@ from .accounts import (
     SESSION_COOKIE,
     AccountError,
     AccountStore,
+    RateLimiter,
     User,
     clear_cookie,
     session_cookie,
 )
 from .agent import Agent
-from .llm import ChatLLM
+from .llm import ChatLLM, LLMError
 from .memory import Memory
 from .tools import RepoGraph
 
@@ -145,6 +155,24 @@ LLM_HINT = (
     "repo-root .env, then restart the server"
 )
 
+# BYO-key requests (M7): the browser keeps the visitor's LLM settings in
+# localStorage and sends them per request. The server never stores or logs
+# the key; it only forwards it to the endpoint the visitor named. Caps are
+# generous for humans, useless for smuggling payloads.
+LLM_HEADER_BASE = "X-Archivist-LLM-Base"
+LLM_HEADER_MODEL = "X-Archivist-LLM-Model"
+LLM_HEADER_KEY = "X-Archivist-LLM-Key"
+MAX_LLM_BASE_LEN = 300
+MAX_LLM_MODEL_LEN = 200
+MAX_LLM_KEY_LEN = 400
+# Demo-key ask quota (M7): the shared key is capped per client per hour;
+# <= 0 disables the cap (dev boxes). BYO-key asks are not counted.
+DEMO_QUOTA_DEFAULT = 40
+DEMO_QUOTA_WINDOW = 3600.0
+# "Test key" probe: one tiny completion, modest per-client rate.
+LLM_TEST_LIMIT = 6
+LLM_TEST_WINDOW = 600.0
+
 # Honest error codes per status: a refusal is not a "bad request", and a
 # missing key is not a client error (REVIEW-M4a F5).
 _ERROR_CODES = {
@@ -213,6 +241,44 @@ def _cookie_value(raw: str | None, name: str) -> str | None:
         if key == name:
             return value or None
     return None
+
+
+def _env_int(name: str, default: int) -> int:
+    """Int env knob with a forgiving parse (junk falls back to the default)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _is_loopback_host(hostname: str) -> bool:
+    """True for ``localhost`` and any loopback IP literal (127.0.0.0/8, ::1)."""
+    if hostname == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _header_get(headers, name: str) -> str:
+    """Case-insensitive single-header read over Message or plain mappings."""
+    if not headers:
+        return ""
+    value = headers.get(name)
+    if value:
+        return str(value)
+    try:
+        items = headers.items()
+    except AttributeError:
+        return ""
+    for key, candidate in items:
+        if str(key).lower() == name.lower():
+            return str(candidate or "")
+    return ""
 
 
 def _jsonable(value):
@@ -482,6 +548,8 @@ class WebApp:
         accounts: AccountStore | None = None,
         demo_graph: str | None = None,
         signup: str = "open",
+        demo_quota: int | None = None,
+        clock: Callable[[], float] | None = None,
     ):
         self.host = host
         self.port = port
@@ -497,6 +565,14 @@ class WebApp:
         # BYO-key client. The agent loop, tools and graph stay real either
         # way — only the model's next-move choices are canned.
         self._llm_factory = llm_factory or ChatLLM
+        # Demo-key ask quota + key-test rate limit (M7): per-process state
+        # with an injectable clock, same rationale as accounts.RateLimiter.
+        if demo_quota is None:
+            demo_quota = _env_int("ARCHIVIST_DEMO_QUOTA", DEMO_QUOTA_DEFAULT)
+        self.demo_quota = max(0, int(demo_quota))
+        self._limiter_clock = clock or time.time
+        self._ask_limiter = RateLimiter(self._limiter_clock)
+        self._llm_test_limiter = RateLimiter(self._limiter_clock)
 
     @property
     def graph(self) -> str:
@@ -549,6 +625,10 @@ class WebApp:
     def _request_user(self) -> User | None:
         ctx = getattr(_CTX_LOCAL, "ctx", None)
         return ctx.user if ctx else None
+
+    @property
+    def _request_ctx(self) -> RequestContext:
+        return getattr(_CTX_LOCAL, "ctx", None) or RequestContext()
 
     # -- auth --------------------------------------------------------------
 
@@ -733,6 +813,8 @@ class WebApp:
                     return self._json(200, self._cypher(body))
                 if path == "/api/ask":
                     return self._json(200, self._ask(body))
+                if path == "/api/llm/test":
+                    return self._json(200, self._llm_test(ctx))
             return self._json(
                 404, {"error": "not_found", "message": f"no route {method} {path}"}
             )
@@ -816,7 +898,7 @@ class WebApp:
                    coalesce(e.ts, e.created_at) AS ts, e.question AS question
             ORDER BY ts DESC, e.id DESC LIMIT 1
             """).result_set
-        llm = self._llm_factory()
+        llm = self._new_llm({})
         return {
             "graph": self.graph,
             "repo": overview["repo"],
@@ -2867,9 +2949,19 @@ class WebApp:
                 "memory writes need a repository of your own — the demo graph "
                 "is shared, so this answer was not remembered"
             )
-        llm = self._llm_factory()
+        ctx = self._request_ctx
+        overrides = self._llm_overrides(ctx)
+        llm = self._new_llm(overrides)
         if not llm.is_configured():
+            if overrides:
+                raise ApiError(
+                    400,
+                    "incomplete LLM settings — a request key needs a base URL "
+                    "and model too (or clear the fields to use the server's)",
+                    code="llm_settings",
+                )
             raise ApiError(503, LLM_HINT)
+        self._demo_quota_gate(ctx, overrides)
         repo = RepoGraph(graph=self.graph, host=self.host, port=self.port)
         memory = (
             Memory(graph=self.graph, host=self.host, port=self.port)
@@ -2921,10 +3013,147 @@ class WebApp:
             if memory is not None:
                 memory.close()
 
+    # -- BYO keys + demo quota (M7) ----------------------------------------
+
+    def _llm_overrides(self, ctx: RequestContext) -> dict:
+        """Per-request LLM settings from the ``X-Archivist-LLM-*`` headers.
+
+        The browser keeps the visitor's key in localStorage and sends it on
+        each ask; the server never stores, logs or echoes it. The base URL
+        must be https — http is allowed only for loopback, so local
+        vLLM/llama.cpp setups still work. Anything malformed is refused
+        with a clean 400 rather than silently ignored.
+        """
+        headers = getattr(ctx, "headers", None) or {}
+        base = _header_get(headers, LLM_HEADER_BASE).strip()
+        model = _header_get(headers, LLM_HEADER_MODEL).strip()
+        key = _header_get(headers, LLM_HEADER_KEY).strip()
+        out: dict = {}
+        if base:
+            if len(base) > MAX_LLM_BASE_LEN:
+                raise ApiError(
+                    400,
+                    f"LLM base URL too long (max {MAX_LLM_BASE_LEN} chars)",
+                    code="llm_settings",
+                )
+            parsed = urlsplit(base)
+            host = parsed.hostname or ""
+            if parsed.scheme not in ("http", "https") or not host:
+                raise ApiError(
+                    400,
+                    "LLM base URL must be an http(s) URL",
+                    code="llm_settings",
+                )
+            if parsed.scheme == "http" and not _is_loopback_host(host):
+                raise ApiError(
+                    400,
+                    "LLM base URL must use https (http is allowed only for "
+                    "loopback addresses)",
+                    code="llm_settings",
+                )
+            if parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ApiError(
+                    400,
+                    "LLM base URL must not include credentials, a query or a "
+                    "fragment",
+                    code="llm_settings",
+                )
+            out["base_url"] = base.rstrip("/")
+        if model:
+            if len(model) > MAX_LLM_MODEL_LEN:
+                raise ApiError(
+                    400,
+                    f"LLM model too long (max {MAX_LLM_MODEL_LEN} chars)",
+                    code="llm_settings",
+                )
+            out["model"] = model
+        if key:
+            if len(key) > MAX_LLM_KEY_LEN:
+                raise ApiError(
+                    400,
+                    f"LLM key too long (max {MAX_LLM_KEY_LEN} chars)",
+                    code="llm_settings",
+                )
+            out["api_key"] = key
+        return out
+
+    def _new_llm(self, overrides: dict | None = None):
+        """Request-scoped LLM client: BYO overrides > scripted seam > env.
+
+        A custom factory (tests, capture server) always wins — scripts are
+        deterministic by design, and BYO headers are for the real client.
+        Fields not overridden fall back to the environment, so a visitor
+        may point a key at any of their own endpoints field by field.
+        """
+        overrides = dict(overrides or {})
+        if self._llm_factory is not ChatLLM:
+            return self._llm_factory()
+        return ChatLLM(
+            base_url=overrides.get("base_url"),
+            api_key=overrides.get("api_key"),
+            model=overrides.get("model"),
+        )
+
+    def _demo_quota_gate(self, ctx: RequestContext, overrides: dict) -> None:
+        """Cap asks that spend the server's demo key, per client, hourly.
+
+        Only the shared key needs protecting: a visitor who brought their
+        own key pays their own bill and is never counted. Scripted servers
+        (tests, captures) are exempt — they spend nothing.
+        """
+        if overrides.get("api_key") or self.demo_quota <= 0:
+            return
+        if self._llm_factory is not ChatLLM:
+            return
+        if self._ask_limiter.hit(
+            f"ask:{self._client_key(ctx)}", self.demo_quota, DEMO_QUOTA_WINDOW
+        ):
+            return
+        raise ApiError(
+            429,
+            f"demo key quota reached ({self.demo_quota} questions/hour from "
+            "this address) — add your own API key in Settings to keep asking",
+            code="demo_quota",
+        )
+
+    def _llm_test(self, ctx: RequestContext) -> dict:
+        """One tiny completion with the request's settings (rate-limited).
+
+        Powers the console's "Test key" button: the request carries exactly
+        the settings an ask would use, so a success here means asks will
+        work too. Upstream failures come back as ``ok: false`` with the
+        provider's words (never the key — it travels one way only).
+        """
+        overrides = self._llm_overrides(ctx)
+        if not self._llm_test_limiter.hit(
+            f"llmtest:{self._client_key(ctx)}", LLM_TEST_LIMIT, LLM_TEST_WINDOW
+        ):
+            raise ApiError(429, "too many key tests — try again in a few minutes")
+        llm = self._new_llm(overrides)
+        if not llm.is_configured():
+            return {
+                "ok": False,
+                "error": "nothing to test yet — a base URL and model are "
+                "required (plus a key unless the endpoint is keyless)",
+            }
+        started = time.perf_counter()
+        try:
+            response = llm.chat(
+                [{"role": "user", "content": "Reply with the single word: pong"}]
+            )
+        except LLMError as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+        return {
+            "ok": True,
+            "model": llm.model,
+            "ms": round((time.perf_counter() - started) * 1000),
+            "reply": (response.content or "").strip()[:200],
+        }
+
     # -- helpers -----------------------------------------------------------
 
     def status_line(self) -> str:
-        llm = self._llm_factory()
+        llm = self._new_llm({})
         state = (
             "configured"
             if llm.is_configured()

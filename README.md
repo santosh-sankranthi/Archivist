@@ -61,8 +61,8 @@ Console v2 is built inside the image; `data/` is mounted read-write at
 (`data/accounts`, `data/users/<uid>`). Mount any other checkout with
 `-v /abs/path:/repo:ro` and `--repo /repo`. `ARCHIVIST_GRAPH` /
 `ARCHIVIST_DEMO_GRAPH` / `ARCHIVIST_PORT` / `FALKORDB_PORT` /
-`ARCHIVIST_SIGNUP` steer the stack, and `ARCHIVIST_LLM_*` in `.env` enables
-the ask room (without a key it stays an honest 503).
+`ARCHIVIST_SIGNUP` / `ARCHIVIST_DEMO_QUOTA` steer the stack, and `ARCHIVIST_LLM_*` in
+`.env` enables the ask room (without a key it stays an honest 503).
 Details: `docs/DEPLOY.md` §4.
 
 ## Graph data model
@@ -206,9 +206,13 @@ python scripts/serve.py            # -> http://127.0.0.1:8787  (graph repo:flask
 cd console && npm ci && npm run build   # build Console v2 assets (Node ≥20.19)
 ```
 
-The explorer works without an LLM key; the ask room activates once
-`ARCHIVIST_LLM_*` is set and refuses honestly otherwise. Screenshots and
-mechanics transcripts: `docs/demo/` (`docs/demo/m4r/` for v2; v1's JSON-layer
+The explorer works without an LLM key. The ask room runs on the server's
+`ARCHIVIST_LLM_*` when present, and visitors can bring their own key — base
+URL / model / key are kept in the visitor's browser and sent per request
+(the server never stores or logs them); asks that spend the server's demo
+key are capped per client (`ARCHIVIST_DEMO_QUOTA`, default 40/hour, `429`
+past the cap with a hint to bring a key). Screenshots and mechanics
+transcripts: `docs/demo/` (`docs/demo/m4r/` for v2; v1's JSON-layer
 transcript is `docs/demo/m4a-console.txt`).
 
 ## AI-assist disclosure

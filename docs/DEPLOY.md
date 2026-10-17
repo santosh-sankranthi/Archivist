@@ -100,7 +100,9 @@ read APIs report that the graph doesn't exist yet.
 Knobs: `ARCHIVIST_PORT` (console host port, default 8787), `FALKORDB_PORT`
 (database host port, default 6379 — set it if a local FalkorDB already holds
 6379), `ARCHIVIST_GRAPH` / `ARCHIVIST_DEMO_GRAPH` (graphs served),
-`ARCHIVIST_SIGNUP=open|closed`, `ARCHIVIST_MAX_REPOS` (default 2). Both
+`ARCHIVIST_SIGNUP=open|closed`, `ARCHIVIST_MAX_REPOS` (default 2),
+`ARCHIVIST_DEMO_QUOTA` (asks/hour/client on the server's demo LLM key,
+default 40, `0` disables). Both
 published ports bind to `127.0.0.1` only. The ask room needs a key — `ARCHIVIST_LLM_*` (or
 `OPENAI_*`) in `.env` next to `compose.yaml`; without one it stays an honest
 503. `serve.py` itself reads `FALKORDB_HOST` / `FALKORDB_PORT` /
@@ -130,8 +132,17 @@ published ports bind to `127.0.0.1` only. The ask room needs a key — `ARCHIVIS
   visible notes, in-flight request cap (`MAX_INFLIGHT = 48`, excess
   connections get `503 + Retry-After` instead of unbounded threads), and a
   15 s socket timeout for stalled clients.
+- **BYO keys (M7):** a visitor's LLM settings travel as
+  `X-Archivist-LLM-Base|Model|Key` request headers and are used for that one
+  request only — never stored, never logged. Bases must be https (http only
+  for loopback); malformed settings are refused with a 400. Honest residual
+  risk: the server *does* make the outbound call to the endpoint the visitor
+  named — that is the feature — so treat it like any service that forwards
+  requests. Key-test probes are rate-limited per client.
 - FalkorDB itself is never exposed: it stays bound to loopback.
 - The Ask endpoint returns an honest `503` until an LLM key is configured.
   The public demo currently runs **with** a key (opencode-go) so visitors can
-  try Ask live — usage draws on the operator's token pool (48 in-flight cap);
+  try Ask live — usage draws on the operator's token pool (48 in-flight cap)
+  and is capped per client (`ARCHIVIST_DEMO_QUOTA`, default 40 asks/hour; a
+  `429` past the cap points visitors at BYO keys);
   removing the key returns the demo to keyless mode.

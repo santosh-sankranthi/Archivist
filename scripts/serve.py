@@ -164,6 +164,13 @@ def main() -> int:
         default=int(os.environ.get("ARCHIVIST_MAX_REPOS", "2")),
         help="repos per account (default 2)",
     )
+    parser.add_argument(
+        "--demo-quota",
+        type=int,
+        default=int(os.environ.get("ARCHIVIST_DEMO_QUOTA", "40")),
+        help="asks per hour per client that may spend the server demo key "
+        "(<=0 disables; default 40)",
+    )
     args = parser.parse_args()
 
     factory = None
@@ -180,6 +187,7 @@ def main() -> int:
         accounts=accounts,
         demo_graph=args.demo_graph or args.graph,
         signup=args.signup,
+        demo_quota=args.demo_quota,
     )
     server = make_server(app, bind=args.bind, port=args.http_port)
     print(f"Archivist console — http://{args.bind}:{server.server_port}")
@@ -188,6 +196,7 @@ def main() -> int:
         f"  accounts: data={args.data_dir} signup={app.signup} "
         f"demo={app.demo_graph} max_repos={accounts.max_repos}"
     )
+    print(f"  demo quota: {app.demo_quota}/h per client (0 = off)")
     if factory is not None:
         print(f"  capture mode: {len(scenarios)} scripted scenario(s)")
     print("  Ctrl-C to stop")

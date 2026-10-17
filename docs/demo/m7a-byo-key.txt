@@ -1,0 +1,24 @@
+# M7a smoke — per-request BYO LLM settings + demo quota guard (2026-10-17, live box)
+
+$ git status --short   # only this chunk's files
+ M README.md
+ M docs/DEPLOY.md
+ M scripts/serve.py
+ M src/archivist/webapp.py
+ M tests/test_webapp.py
+?? docs/demo/m7a-byo-key.txt
+
+$ systemctl --user restart archivist-console && sleep 2 && systemctl --user is-active archivist-console
+active
+
+$ curl -s -o /dev/null -w '%{http_code} -> %{redirect_url}\n' http://127.0.0.1:8787/
+302 -> http://127.0.0.1:8787/console/
+
+$ curl -s -X POST http://127.0.0.1:8787/api/llm/test -H 'Content-Type: application/json' -d '{}'   # server key probe
+{"ok": true, "model": "deepseek-v4-pro", "ms": 3635, "reply": "pong"}
+
+$ curl -s -X POST http://127.0.0.1:8787/api/ask -H 'Content-Type: application/json' -H 'X-Archivist-LLM-Base: http://example.com/v1' -d '{"question": "who calls main?"}'   # off-loopback http base refused
+{"error": "llm_settings", "message": "LLM base URL must use https (http is allowed only for loopback addresses)"}
+
+# note: the demo-quota 429 + window slide are covered by tests
+# (test_demo_quota_caps_server_key_asks) — a live 429 would need 40 real asks.

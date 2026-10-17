@@ -18,6 +18,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from itertools import pairwise
 from typing import ClassVar
 
@@ -28,7 +29,7 @@ from archivist.graph import GraphWriter
 from archivist.ingest import ingest
 from archivist.llm import LLMResponse
 from archivist.memory import Memory
-from archivist.webapp import ApiError, WebApp, make_server
+from archivist.webapp import ApiError, RequestContext, WebApp, make_server
 
 
 @pytest.fixture()
@@ -1434,3 +1435,241 @@ def test_ownership_caps_are_disclosed(ownership_server: str, monkeypatch):
     _, file_data = get_json(ownership_server + "/api/graph/ownership?file=a.py")
     assert len(file_data["owners"]) == 1
     assert any("owners capped at 1 (1 more not shown" in n for n in file_data["notes"])
+
+
+# -- M7a: BYO LLM keys + demo quota + key testing ---------------------------
+
+
+class _FakeLLM:
+    """Local stand-in for an OpenAI-compatible endpoint; records requests.
+
+    ``status`` != 200 makes every call fail, so the honest-failure paths
+    (retries exhausted, message surfaces) are exercised end to end.
+    """
+
+    def __init__(self, *, status: int = 200, content: str = "fake answer"):
+        self.status = status
+        self.content = content
+        self.requests: list[dict] = []
+
+    def __enter__(self):
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+                outer.requests.append({"headers": dict(self.headers), "body": body})
+                if outer.status == 200:
+                    data = json.dumps(
+                        {"choices": [{"message": {"content": outer.content}}]}
+                    ).encode()
+                else:
+                    data = json.dumps({"error": "boom"}).encode()
+                self.send_response(outer.status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self._httpd = HTTPServer(("127.0.0.1", 0), Handler)
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        self.url = f"http://127.0.0.1:{self._httpd.server_port}/v1"
+        return self
+
+    def __exit__(self, *exc):
+        self._httpd.shutdown()
+        self._httpd.server_close()
+
+
+def _post_headers(url: str, payload: dict, headers: dict) -> tuple[int, dict]:
+    """POST JSON with custom headers; surfaces HTTPError bodies for asserts."""
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode(), headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as res:
+            return res.status, json.loads(res.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def _llm_headers(base: str, key: str = "byo-secret-key", model: str = "byo-model"):
+    return {
+        "Content-Type": "application/json",
+        "X-Archivist-LLM-Base": base,
+        "X-Archivist-LLM-Model": model,
+        "X-Archivist-LLM-Key": key,
+    }
+
+
+def _serve_chain(chain_repo, falkordb_or_skip, temp_graph, **app_kwargs):
+    """Chain repo in a scratch graph + a live HTTP server; caller must stop it."""
+    host, port = falkordb_or_skip
+    ingest(chain_repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port, **app_kwargs)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, f"http://127.0.0.1:{server.server_port}"
+
+
+def test_ask_byo_key_works_without_server_env(chain_repo, falkordb_or_skip, temp_graph):
+    server, base = _serve_chain(chain_repo, falkordb_or_skip, temp_graph)
+    try:
+        with _FakeLLM() as fake:
+            status, data = _post_headers(
+                base + "/api/ask",
+                {"question": "who calls main?", "remember": False},
+                _llm_headers(fake.url),
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert status == 200, data
+    assert data["answer"]["text"] == "fake answer"
+    sent = fake.requests[0]
+    assert sent["headers"]["Authorization"] == "Bearer byo-secret-key"
+    assert sent["body"]["model"] == "byo-model"
+
+
+def test_byo_base_url_validation(web_server: str):
+    for bad in (
+        "http://example.com/v1",  # https required off loopback
+        "ftp://example.com",  # scheme gate
+        "https://user:pw@example.com",  # credentials refused
+        "https://example.com/v1?token=x",  # query refused
+        "not a url",
+        "https://" + "a" * 400 + ".example.com",  # over cap
+    ):
+        status, data = _post_headers(
+            web_server + "/api/ask",
+            {"question": "hi", "remember": False},
+            _llm_headers(bad),
+        )
+        assert status == 400, (bad, data)
+        assert data["error"] == "llm_settings", bad
+
+
+def test_llm_overrides_unit_allows_loopback_http():
+    app = WebApp()
+    ctx = RequestContext(
+        headers={
+            "X-Archivist-LLM-Base": "http://127.0.0.1:9123/v1/",
+            "X-Archivist-LLM-Model": "m1",
+            "X-Archivist-LLM-Key": "k1",
+        }
+    )
+    llm = app._new_llm(app._llm_overrides(ctx))
+    assert llm.base_url == "http://127.0.0.1:9123/v1"  # trailing slash trimmed
+    assert llm.model == "m1"
+    assert llm.api_key == "k1"
+
+
+def test_demo_quota_caps_server_key_asks(
+    chain_repo, falkordb_or_skip, temp_graph, monkeypatch
+):
+    with _FakeLLM() as fake:
+        monkeypatch.setenv("ARCHIVIST_LLM_BASE_URL", fake.url)
+        monkeypatch.setenv("ARCHIVIST_LLM_API_KEY", "server-key")
+        monkeypatch.setenv("ARCHIVIST_LLM_MODEL", "server-model")
+        now = [1000.0]
+        server, base = _serve_chain(
+            chain_repo,
+            falkordb_or_skip,
+            temp_graph,
+            demo_quota=2,
+            clock=lambda: now[0],
+        )
+        try:
+            env_headers = {"Content-Type": "application/json"}
+            for _ in range(2):  # the allowance
+                status, data = _post_headers(
+                    base + "/api/ask",
+                    {"question": "who calls main?", "remember": False},
+                    env_headers,
+                )
+                assert status == 200 and data["answer"]["text"] == "fake answer"
+            status, data = _post_headers(  # one over
+                base + "/api/ask",
+                {"question": "who calls main?", "remember": False},
+                env_headers,
+            )
+            assert status == 429
+            assert data["error"] == "demo_quota"
+            assert "add your own API key" in data["message"]
+            # A BYO key skips the demo quota entirely.
+            status, data = _post_headers(
+                base + "/api/ask",
+                {"question": "who calls main?", "remember": False},
+                _llm_headers(fake.url, key="visitor-key"),
+            )
+            assert status == 200
+            # ...and once the window slides, the demo key works again.
+            now[0] += 3601
+            status, data = _post_headers(
+                base + "/api/ask",
+                {"question": "who calls main?", "remember": False},
+                env_headers,
+            )
+            assert status == 200
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+def test_byo_key_never_echoed(chain_repo, falkordb_or_skip, temp_graph, capsys):
+    server, base = _serve_chain(chain_repo, falkordb_or_skip, temp_graph)
+    secret = "sk-super-secret-1234567890"
+    try:
+        with _FakeLLM(status=500) as fake:  # upstream fails: message path
+            status, data = _post_headers(
+                base + "/api/ask",
+                {"question": "who calls main?", "remember": False},
+                _llm_headers(fake.url, key=secret),
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert status == 200
+    assert data["answer"]["partial"] is True
+    assert "HTTP 500" in data["answer"]["error"]
+    assert secret not in json.dumps(data)
+    captured = capsys.readouterr()
+    assert secret not in captured.out and secret not in captured.err
+
+
+def test_llm_test_endpoint_reports_honestly(web_server: str):
+    with _FakeLLM(content="pong") as fake:
+        status, data = _post_headers(
+            web_server + "/api/llm/test", {}, _llm_headers(fake.url)
+        )
+        assert status == 200, data
+        assert data["ok"] is True
+        assert data["reply"] == "pong"
+        assert data["model"] == "byo-model"
+        assert isinstance(data["ms"], int)
+        # Nothing configured: an honest refusal, not an invented pass.
+        status, data = _post_headers(web_server + "/api/llm/test", {}, {})
+        assert status == 200 and data["ok"] is False
+        assert "nothing to test" in data["error"]
+        # Unreachable endpoint: the provider-level error comes back.
+        status, data = _post_headers(
+            web_server + "/api/llm/test", {}, _llm_headers("http://127.0.0.1:9/v1")
+        )
+        assert status == 200 and data["ok"] is False
+        assert "cannot reach" in data["error"]
+
+
+def test_llm_test_rate_limited(web_server: str):
+    with _FakeLLM(content="pong") as fake:
+        headers = _llm_headers(fake.url)
+        for _ in range(6):
+            status, data = _post_headers(web_server + "/api/llm/test", {}, headers)
+            assert status == 200 and data["ok"] is True
+        status, data = _post_headers(web_server + "/api/llm/test", {}, headers)
+        assert status == 429
