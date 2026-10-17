@@ -47,9 +47,10 @@ function Shell() {
   const narrow = useMediaQuery("(max-width: 720px)");
   const authRoute =
     path === "/login" || path === "/signup" || path === "/account";
-  // Auth links are shared and opened on phones; below 720px the rails step
-  // aside so the card keeps a real line length (Gate A W5).
-  const showRail = !authRoute || !narrow;
+  // Below 720px the rails step aside for every route (not just auth) so the
+  // center column gets the full viewport; the top-bar "Menu" button opens the
+  // ⌘K palette as the discoverable mobile replacement (audit #5).
+  const showRail = !narrow;
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -130,7 +131,7 @@ function Shell() {
             </motion.div>
           </AnimatePresence>
         </main>
-        {authRoute ? null : (
+        {authRoute || narrow ? null : (
           <RightRail open={rightOpen} onToggle={() => setRightOpen((open) => !open)} />
         )}
       </div>

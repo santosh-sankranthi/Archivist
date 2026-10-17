@@ -120,6 +120,15 @@ export function TopBar({ state, onOpenPalette, onOpenSettings }: Props) {
         </button>
         <button
           type="button"
+          className={styles.menu}
+          onClick={onOpenPalette}
+          aria-label="Open menu"
+          title="Menu — views and search"
+        >
+          Menu
+        </button>
+        <button
+          type="button"
           className={styles.settings}
           onClick={onOpenSettings}
           aria-label="Open settings"
