@@ -25,6 +25,7 @@ import type {
   StylesheetJson,
 } from "cytoscape";
 import { useEffect, useRef } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { orderChain, toCyElements } from "../lib/graph";
 import type { Chain, Spotlight } from "../lib/graph";
@@ -176,6 +177,18 @@ const STYLE: StylesheetJson = [
       "shadow-blur": 14,
       "shadow-color": "#e9ae58",
       "shadow-opacity": 0.18,
+      "shadow-offset-x": 0,
+      "shadow-offset-y": 0,
+    }),
+  },
+  {
+    selector: "node.kbfocus",
+    style: glow({
+      "border-width": 2,
+      "border-color": "#f2bd70",
+      "shadow-blur": 16,
+      "shadow-color": "#e9ae58",
+      "shadow-opacity": 0.24,
       "shadow-offset-x": 0,
       "shadow-offset-y": 0,
     }),
@@ -585,13 +598,72 @@ export function GraphCanvas({
     });
   }
 
+  // Keyboard node traversal (audit #4): arrow keys move a roving focus ring
+  // across the plotted nodes; Enter selects the focused node into the
+  // inspector (mirroring `onSelect`); Escape clears selection. The canvas
+  // container is focusable and announced with these affordances. The index
+  // lives in a ref (no re-render needed) and the focus class is moved
+  // imperatively on the cytoscape elements.
+  const kbIndexRef = useRef<number | null>(null);
+
+  function kbNodeList(): GraphNode[] {
+    return Array.from(nodesRef.current.values());
+  }
+
+  function clearKbFocus(): void {
+    cyRef.current?.elements().removeClass("kbfocus");
+    kbIndexRef.current = null;
+  }
+
+  function moveFocus(delta: number): void {
+    const cy = cyRef.current;
+    const nodes = kbNodeList();
+    if (!cy || nodes.length === 0) {
+      clearKbFocus();
+      return;
+    }
+    const current = kbIndexRef.current;
+    const next = current === null ? 0 : (current + delta + nodes.length) % nodes.length;
+    cy.elements().removeClass("kbfocus");
+    cy.getElementById(`n${nodes[next].id}`).addClass("kbfocus");
+    kbIndexRef.current = next;
+  }
+
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      moveFocus(1);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      moveFocus(-1);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      const nodes = kbNodeList();
+      const index = kbIndexRef.current;
+      if (index != null && nodes[index]) onSelectRef.current?.(nodes[index]);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      clearKbFocus();
+      onSelectRef.current?.(null);
+    }
+  }
+
+  // Clear the roving focus when the payload changes.
+  useEffect(() => {
+    clearKbFocus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload]);
+
   return (
     <>
       <div
         ref={containerRef}
         className={styles.canvas}
-        role="img"
-        aria-label="Call graph — select a node; its details appear in the inspector"
+        role="application"
+        aria-roledescription="interactive call graph"
+        aria-label="Call graph — arrow keys move between nodes, Enter inspects the focused node, Escape clears selection"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
       />
       <span ref={pulseRef} className={styles.pulse} aria-hidden="true" />
       <span ref={ringRef} className={styles.ring} aria-hidden="true" />
