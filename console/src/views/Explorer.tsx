@@ -291,7 +291,7 @@ export function Explorer({ query }: Props) {
                 type="button"
                 className={styles.btn}
                 aria-pressed={weakOn}
-                title="resolver guesses — dashed edges"
+                title="resolver guesses, not verified calls — shown dashed in amber"
                 onClick={() => setWeakOn((value) => !value)}
               >
                 weak
@@ -857,7 +857,7 @@ function Legend() {
         <span className={styles.markDotted} /> imports
       </span>
       <span className={styles.legendItem}>
-        <span className={styles.markDashed} /> weak
+        <span className={styles.markDashed} /> weak (guessed)
       </span>
     </div>
   );
