@@ -273,6 +273,21 @@
   background: var(--ink-850);
 }
 
+.noKeyNote,
+.quotaNote {
+  margin-top: 8px;
+  color: var(--text-low);
+  font-size: 12px;
+}
+
+.quota {
+  padding: var(--sp-4);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-2);
+  background: var(--ink-850);
+}
+
 .failureTitle {
   color: var(--text-hi);
   font-size: 13px;

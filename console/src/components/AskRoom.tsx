@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, postJSON } from "../lib/api";
 import { formatInt } from "../lib/format";
+import { llmHeadersFor, useLLMKey } from "../lib/llmKeys";
 import { useSession } from "../lib/session";
 import {
   mergeReplays,
@@ -55,6 +56,7 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
   const [draft, setDraft] = useState(initialQuestion ?? "");
   const [remember, setRemember] = useState(true);
   const session = useSession();
+  const byoKey = useLLMKey();
   const anonDemo =
     session.loaded && session.me?.anonymous === true && remember;
   const [active, setActive] = useState<{ turn: number; step: number } | null>(null);
@@ -98,11 +100,15 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
     setDraft("");
     let data: AskResponse;
     try {
-      data = await postJSON<AskResponse>("/api/ask", {
-        question,
-        max_steps: 6,
-        remember: remembered,
-      });
+      data = await postJSON<AskResponse>(
+        "/api/ask",
+        {
+          question,
+          max_steps: 6,
+          remember: remembered,
+        },
+        llmHeadersFor(byoKey),
+      );
     } catch (error) {
       const apiError =
         error instanceof ApiError ? error : new ApiError(0, String(error));
@@ -236,16 +242,37 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
                 <h4 className={styles.noKeyTitle}>The console can&rsquo;t talk yet.</h4>
                 <p className={styles.noKeyBody}>
                   No LLM key is configured on this box, so conversations are switched
-                  off — every other surface on this screen reads the live graph. To
-                  turn answers on, set the environment below and restart the server.
+                  off — every other surface on this screen reads the live graph. Bring
+                  your own key in Settings to turn answers on, or the box owner can set
+                  the environment below and restart the server.
                 </p>
                 <p className={styles.env}>
                   ARCHIVIST_LLM_BASE_URL · ARCHIVIST_LLM_API_KEY · ARCHIVIST_LLM_MODEL
                 </p>
+                {byoKey.base || byoKey.model || byoKey.key ? (
+                  <p className={styles.noKeyNote}>
+                    A key is set in Settings but the ask was still refused — check that
+                    the base URL, model, and key are complete, then Test key.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
-            {turn.phase.kind === "error" && turn.phase.error.status !== 503 ? (
+            {turn.phase.kind === "error" &&
+            turn.phase.error.code === "demo_quota" ? (
+              <div className={styles.quota} role="alert">
+                <h4 className={styles.failureTitle}>Demo quota reached.</h4>
+                <p className={styles.failureBody}>{turn.phase.error.message}</p>
+                <p className={styles.quotaNote}>
+                  Bring your own key in Settings to keep asking, or wait for the hourly
+                  window to reset.
+                </p>
+              </div>
+            ) : null}
+
+            {turn.phase.kind === "error" &&
+            turn.phase.error.status !== 503 &&
+            turn.phase.error.code !== "demo_quota" ? (
               <div className={styles.failure} role="alert">
                 <p className={styles.failureTitle}>The ask failed.</p>
                 <p className={styles.failureBody}>{turn.phase.error.message}</p>
