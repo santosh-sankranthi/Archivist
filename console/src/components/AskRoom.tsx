@@ -76,10 +76,11 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
     if (!autoRun || initialQuestion === null) return;
     const question = initialQuestion.trim();
     if (!question || ranRef.current === question) return;
+    // A landing/help deep link asks the same question as a first-time visitor
+    // would; we surface the suggestion in the box instead of firing it — the
+    // visitor decides when to run it (audit #6).
     ranRef.current = question;
-    void run(question);
-    // run is defined per render; the guard dedupes by question *value* —
-    // a fresh deep link (⌘K ask, starter, ?q= change) runs once.
+    setDraft(question);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRun, initialQuestion]);
 
