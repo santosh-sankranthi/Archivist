@@ -35,7 +35,7 @@ describe("buildPaletteItems", () => {
   it("empty query → actions + starters only, in order", () => {
     const items = buildPaletteItems("", null);
     const kinds = items.map((item) => item.kind);
-    expect(kinds).toEqual([...Array(8).fill("action"), ...Array(STARTERS.length).fill("ask")]);
+    expect(kinds).toEqual([...Array(9).fill("action"), ...Array(STARTERS.length).fill("ask")]);
     expect(items[0].id).toBe("action:/console/overview");
   });
 
@@ -118,7 +118,7 @@ describe("groupPaletteItems", () => {
     const items = buildPaletteItems("", null);
     const groups = groupPaletteItems(items);
     expect(groups[0]).toMatchObject({ kind: "action", label: "Actions", start: 0 });
-    expect(groups[1]).toMatchObject({ kind: "ask", label: "Asks", start: 8 });
+    expect(groups[1]).toMatchObject({ kind: "ask", label: "Asks", start: 9 });
     expect(groups[1].items).toHaveLength(STARTERS.length);
   });
 });

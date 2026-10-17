@@ -622,6 +622,12 @@
   gap: var(--sp-3);
 }
 
+.historyLinks {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
 .historyLink {
   border: none;
   background: none;

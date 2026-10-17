@@ -1,16 +1,25 @@
 # Console v2 demo captures (M4R)
 
-Re-shot **2026-10-17 ~02:29Z** in one full pass after the **Time machine**
-view landed (M4R runway flagship — the rail gained "Time machine", so
-every rail-visible still was re-taken for consistency; the pass wrote all
-16 stills). Stills run against the live server `:8787`; ask scenes (04–05)
-against the scripted capture server `:8789` — the real loop, tools and
-graph, only the model's next-move choices are canned (the status chip
-reads "scripted (demo)" inside the shot itself). The capture script fails
-on any JS error; this pass was clean.
+Re-shot **2026-10-17 ~05:35Z** in one full pass after the **Ownership**
+view landed (the runway's who-knows-what ledger; the rail gained
+"Ownership", so every rail-visible still was re-taken for consistency —
+the pass wrote all 20 stills). Stills run against the live server
+`:8787`; ask scenes (04–05) against the scripted capture server `:8789`
+(restarted beforehand for a fresh scenario run, stopped after) — the real
+loop, tools and graph, only the model's next-move choices are canned (the
+status chip reads "scripted (demo)" inside the shot itself). The capture
+script fails on any JS error; this pass was clean.
 
 Notes:
 
+- `17-ownership.png` … `20-ownership-file.png` (Ownership, new this
+  pass): the people leaderboard (bars relative to the top author, exact
+  shares printed, bots counted), the hot files' owner mixes (stacked bars
+  with the unshown long tail hatched), the single-owner watch list, and
+  one file's ownership — owners, reviewer suggestions and recent commits
+  for `src/flask/app.py`, the same file as
+  `docs/demo/m4r-ownership-api.txt`. All values read live; section frames
+  use a deterministic scroll on the console's main pane.
 - `11-history.png` / `12-history-window.png` / `13-history-file.png` (Time
   machine, new this pass): the month skyline on live data, a window dragged
   open over the busiest month (read live from the API, never a constant),

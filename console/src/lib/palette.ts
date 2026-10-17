@@ -48,6 +48,12 @@ const ACTIONS: ActionDef[] = [
     to: href("/impact"),
   },
   {
+    label: "Go to Ownership",
+    keywords:
+      "ownership who knows what owners maintainers reviewers blame authors bus factor single owner hot files history",
+    to: href("/ownership"),
+  },
+  {
     label: "Go to Ask",
     keywords: "question agent trace ribbon cypher",
     to: href("/ask"),

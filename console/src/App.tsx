@@ -18,6 +18,7 @@ import { Home } from "./views/Home";
 import { Impact } from "./views/Impact";
 import { Landing } from "./views/Landing";
 import { Memory } from "./views/Memory";
+import { Ownership } from "./views/Ownership";
 import styles from "./App.module.css";
 
 /** Route split: `/console/` is the landing; everything else runs in the shell.
@@ -76,6 +77,8 @@ function Shell() {
     view = <History />;
   } else if (path === "/impact") {
     view = <Impact />;
+  } else if (path === "/ownership") {
+    view = <Ownership />;
   } else if (path === "/about") {
     view = <About state={state.data} stateError={state.error?.message ?? null} />;
   } else {

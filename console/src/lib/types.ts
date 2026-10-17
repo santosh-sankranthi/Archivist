@@ -423,3 +423,122 @@ export interface ImpactResponse {
   files: ImpactFile[];
   notes: string[];
 }
+
+/** `/api/graph/ownership` — who knows what, inferred from commit history.
+ *  Repo scope ranks people, hot files, and single-owner risks; file scope
+ *  ranks one file's authors, suggests reviewers, and lists recent commits.
+ *  Every cap the server applied rides in `notes`. */
+export interface OwnershipOwnerRef {
+  name: string;
+  email: string;
+  commits: number;
+  share: number;
+  bot: boolean;
+}
+
+export interface OwnershipPerson extends OwnershipOwnerRef {
+  files: number;
+  churn: number;
+  last_ts: number | null;
+  recent_commits: number;
+}
+
+export interface OwnershipFileRow {
+  path: string;
+  commits: number;
+  churn: number;
+  authors: number;
+  last_ts: number | null;
+  tests: boolean;
+  owners: OwnershipOwnerRef[];
+  /** Present on single-owner (risk) rows only. */
+  primary_share?: number;
+}
+
+export interface OwnershipRepo {
+  scope: "repo";
+  clock: number | null;
+  recent_days: number;
+  totals: {
+    commits: number;
+    commits_with_diff: number;
+    files: number;
+    authors: number;
+    file_changes: number;
+  };
+  people: OwnershipPerson[];
+  people_total: number;
+  hot_files: OwnershipFileRow[];
+  hot_files_total: number;
+  risks: OwnershipFileRow[];
+  risks_total: number;
+  notes: string[];
+}
+
+export interface OwnershipFileMeta {
+  path: string;
+  lang: string | null;
+  loc: number | null;
+  commits: number;
+  authors: number;
+  churn: number;
+  added: number;
+  removed: number;
+  first_ts: number | null;
+  last_ts: number | null;
+  symbols: number;
+  tests: boolean;
+}
+
+export interface OwnershipFileOwner extends OwnershipOwnerRef {
+  added: number;
+  removed: number;
+  churn: number;
+  first_ts: number | null;
+  last_ts: number | null;
+  recent_commits: number;
+}
+
+export interface OwnershipReviewer {
+  name: string;
+  email: string;
+  commits: number;
+  recent_commits: number;
+  last_ts: number | null;
+  why: string;
+}
+
+export interface OwnershipCommit {
+  sha: string;
+  summary: string;
+  ts: number | null;
+  author: string;
+  email: string;
+  added: number;
+  removed: number;
+}
+
+export interface OwnershipRelated {
+  path: string;
+  commits: number;
+  first_ts: number | null;
+  last_ts: number | null;
+  relation: string;
+}
+
+export interface OwnershipFileScope {
+  scope: "file";
+  path: string;
+  clock: number | null;
+  recent_days: number;
+  file: OwnershipFileMeta;
+  owners: OwnershipFileOwner[];
+  owners_total: number;
+  reviewers: OwnershipReviewer[];
+  recent_commits: OwnershipCommit[];
+  recent_total: number;
+  related_paths: OwnershipRelated[];
+  notes: string[];
+}
+
+export type OwnershipResponse = OwnershipRepo | OwnershipFileScope;

@@ -190,7 +190,9 @@ module → file → symbol drill-down, caller/callee neighbourhoods with the
 weak-guess filter, directed path finder), an ask room where every answer's
 trace is replayed on the canvas as an induced subgraph, a bi-temporal memory
 ledger, the three-agent crew view, a commit time machine, a blast-radius
-cone (reverse calls, by hop), a ⌘K palette, and an About page. Built with
+cone (reverse calls, by hop), a who-knows-what ownership ledger (people,
+owner mixes, single-owner watch list, per-file reviewers), a ⌘K palette,
+and an About page. Built with
 Vite + React + TypeScript, served as static assets by the same stdlib
 server; console v1 stays archived at `/classic/`.
 

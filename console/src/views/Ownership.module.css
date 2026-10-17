@@ -1,0 +1,645 @@
+/* Ownership — who knows what, as an editorial report. One accent: amber,
+   worn by shares and rank bars; the long tail of a file's author list is a
+   hatched neutral band so "many hands, thinly" reads differently from "one
+   hand, deeply". Bars are a glance scaled to their widest row; every number
+   they summarize is printed next to them. */
+
+.ownership {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--sp-10) var(--sp-8) var(--sp-24);
+}
+
+/* -- head ------------------------------------------------------------------ */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  animation: rise var(--t-slow) var(--ease) both;
+}
+
+.eyebrow {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--text-hi);
+}
+
+.lead {
+  max-width: 68ch;
+  color: var(--text-mid);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* -- states ---------------------------------------------------------------- */
+
+.loading,
+.empty {
+  font: 400 12px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+.errorPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-6);
+  border: 1px solid rgba(224, 108, 117, 0.35);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.errorTitle {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 400;
+  color: var(--text-hi);
+}
+
+.errorBody {
+  font: 400 12px/1.6 var(--font-mono);
+  color: var(--rose);
+  overflow-wrap: anywhere;
+}
+
+.errorHint {
+  font-size: 13px;
+  color: var(--text-mid);
+}
+
+.errorLink {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-low);
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.errorLink:hover {
+  color: var(--amber);
+}
+
+/* -- stats ----------------------------------------------------------------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-4) var(--sp-5);
+  min-width: 0;
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--hairline);
+}
+
+.statValue {
+  font: 500 20px/1.1 var(--font-mono);
+  color: var(--text-hi);
+}
+
+.statValueSmall {
+  font: 500 12px/1.5 var(--font-mono);
+  color: var(--text-hi);
+  white-space: nowrap;
+}
+
+.statLabel {
+  font-size: 12px;
+  color: var(--text-low);
+  overflow-wrap: anywhere;
+}
+
+/* -- gate ------------------------------------------------------------------ */
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.gateLabel {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.gateInput {
+  width: 100%;
+  padding: 10px var(--sp-4);
+  font: 400 13px/1.2 var(--font-mono);
+  color: var(--text-hi);
+  background: var(--ink-950);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease);
+}
+
+.gateInput::placeholder {
+  color: var(--text-low);
+}
+
+.gateInput:focus {
+  border-color: rgba(233, 174, 88, 0.5);
+}
+
+.gateResults {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gateHint {
+  font: 400 12px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
+.gateRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 7px var(--sp-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-1);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.gateRow:hover {
+  background: var(--ink-850);
+}
+
+.gateRowName {
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+
+.gateRowMeta {
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+  flex-shrink: 0;
+}
+
+/* -- sections -------------------------------------------------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--text-hi);
+}
+
+.sectionMeta {
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-low);
+  text-align: right;
+}
+
+/* -- ranked rows (people + file owners + reviewers) ------------------------ */
+
+.barList,
+.reviewers {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+  overflow: hidden;
+  list-style: none;
+}
+
+.barRow,
+.reviewer {
+  display: grid;
+  grid-template-columns: 26px 34px minmax(0, 1fr) 170px 64px;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-5);
+}
+
+.barRow + .barRow,
+.reviewer + .reviewer {
+  border-top: 1px solid var(--hairline);
+}
+
+.reviewer {
+  grid-template-columns: 26px 34px minmax(0, 1fr);
+}
+
+.rank {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--text-low);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ink-850);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--text-mid);
+}
+
+.barRowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.nameLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.barRowName {
+  font: 500 13px/1.3 var(--font-ui);
+  color: var(--text-hi);
+}
+
+.barRowMeta {
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+  overflow-wrap: anywhere;
+}
+
+.botTag,
+.recentTag {
+  font: 500 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  padding: 3px 5px;
+  border-radius: var(--r-1);
+  transform: translateY(-1px);
+}
+
+.botTag {
+  text-transform: uppercase;
+  color: var(--text-low);
+  border: 1px solid var(--hairline-strong);
+}
+
+.recentTag {
+  color: var(--amber);
+  border: 1px solid rgba(233, 174, 88, 0.4);
+  background: var(--amber-tint);
+}
+
+.barWrap {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--amber-press), var(--amber));
+}
+
+.shareValue {
+  font: 500 12px/1 var(--font-mono);
+  color: var(--text-hi);
+  text-align: right;
+}
+
+/* -- hot files ------------------------------------------------------------- */
+
+.fileList,
+.riskList,
+.relatedList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.fileRow,
+.riskRow,
+.relatedRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--ink-900);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+.fileRow:hover,
+.riskRow:hover,
+.relatedRow:hover {
+  border-color: var(--hairline-strong);
+  background: var(--ink-850);
+}
+
+.fileRowHead,
+.riskStory {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.filePath {
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+
+.testTag {
+  font: 500 9px/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--teal);
+  border: 1px solid rgba(94, 200, 183, 0.35);
+  border-radius: var(--r-1);
+  padding: 3px 5px;
+}
+
+.fileMeta {
+  margin-left: auto;
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+}
+
+.fileMix {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mixBar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--hairline);
+  transform-origin: left;
+}
+
+.mixSeg {
+  display: block;
+  height: 100%;
+  background: var(--amber);
+}
+
+.mixSeg:nth-child(1) {
+  opacity: 0.85;
+}
+
+.mixSeg:nth-child(2) {
+  opacity: 0.55;
+}
+
+.mixSeg:nth-child(3) {
+  opacity: 0.32;
+}
+
+.mixSegRest {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--hairline-strong) 0 3px,
+    transparent 3px 7px
+  );
+  opacity: 1;
+}
+
+.mixLegend {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+}
+
+.mixEntry + .mixEntry::before {
+  content: "·";
+  margin-right: var(--sp-3);
+  color: var(--hairline-strong);
+}
+
+/* -- risks ----------------------------------------------------------------- */
+
+.riskRow {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: center;
+}
+
+.riskShare {
+  font: 500 20px/1 var(--font-mono);
+  color: var(--amber);
+}
+
+.riskMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.riskMeta {
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+  overflow-wrap: anywhere;
+}
+
+/* -- file scope ------------------------------------------------------------ */
+
+.scopeBar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.backLink,
+.actionLink {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-low);
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.backLink:hover,
+.actionLink:hover {
+  color: var(--amber);
+}
+
+.scopeActions {
+  display: flex;
+  gap: var(--sp-5);
+}
+
+.fileCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--amber);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+}
+
+.fileCardMain {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.fileCardKind {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.fileCardPath {
+  font: 500 18px/1.2 var(--font-mono);
+  color: var(--text-hi);
+  overflow-wrap: anywhere;
+}
+
+.fileCardChips {
+  font: 400 11px/1.2 var(--font-mono);
+  color: var(--text-low);
+}
+
+/* -- commits --------------------------------------------------------------- */
+
+.commitList {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+
+.commitRow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto 180px;
+  gap: var(--sp-3);
+  align-items: baseline;
+  padding: 9px var(--sp-5);
+}
+
+.commitRow + .commitRow {
+  border-top: 1px solid var(--hairline);
+}
+
+.commitSha {
+  font: 500 11px/1.4 var(--font-mono);
+  color: var(--text-mid);
+}
+
+.commitSummary {
+  font-size: 13px;
+  color: var(--text-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commitAuthor {
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+  white-space: nowrap;
+}
+
+.commitMeta {
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* -- related --------------------------------------------------------------- */
+
+.relatedRow {
+  gap: 4px;
+}
+
+.relatedMeta {
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-low);
+}
+
+/* -- notes ----------------------------------------------------------------- */
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--hairline);
+  list-style: none;
+}
+
+.note {
+  font: 400 11px/1.5 var(--font-mono);
+  color: var(--text-low);
+}

@@ -14,7 +14,7 @@ scripted capture server for ask scenes — see docs/demo/m4r/ask-script.json):
 
 Scenes: landing (hero, hero-energy), home (00), explorer (01–03), ask
 (04–05), palette (06), about (07), memory (08–09), crew (10), history
-(11–13), impact (14–16). Waits on the
+(11–13), impact (14–16), ownership (17–20). Waits on the
 canvas `data-settled="1"` stamp, on scripted answer text, and on the
 landing's `window.__archivist.stagedAt` timeline token instead of fixed
 sleeps wherever possible; fails loudly on any JS error so a broken build
@@ -343,6 +343,64 @@ def run_impact(page: Page, base: str, out: Path) -> None:
     shot(page, out, "16-impact-entry")
 
 
+def scroll_to_section(page: Page, selector: str, gap: int = 24) -> None:
+    """Scroll the console's main pane so `selector` sits `gap` px below its
+    top edge. Deterministic framing for section stills (the pane, not the
+    window, is the scroller — the class name is hashed, so we walk up)."""
+    page.evaluate(
+        """([selector, gap]) => {
+            const el = document.querySelector(selector);
+            if (!el) throw new Error(`no element for ${selector}`);
+            let scroller = el.parentElement;
+            while (
+                scroller &&
+                !/auto|scroll|overlay/.test(getComputedStyle(scroller).overflowY)
+            ) {
+                scroller = scroller.parentElement;
+            }
+            if (!scroller) throw new Error("no scroll container");
+            const delta =
+                el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+            scroller.scrollTop += delta - gap;
+        }""",
+        [selector, gap],
+    )
+
+
+def run_ownership(page: Page, base: str, out: Path) -> None:
+    """17–20: ownership — the repo leaderboard, the hot-file owner mixes,
+    the single-owner watch list, then one file's owners + reviewers + recent
+    commits.
+
+    The file is the one the transcript cross-checks used (src/flask/app.py),
+    so the stills agree with `docs/demo/m4r-ownership-api.txt`.
+    """
+    page.goto(f"{base}/console/ownership", wait_until="load")
+    page.wait_for_selector("[data-ownership='ready']", timeout=20000)
+    page.wait_for_selector("[data-section='people']", timeout=20000)
+    page.wait_for_timeout(1200)  # head rise + bar draw-in stagger land
+    shot(page, out, "17-ownership")
+
+    # 18 — hot files: owner-mix bars over the busiest paths.
+    scroll_to_section(page, "[data-section='hot-files']")
+    page.wait_for_timeout(700)
+    shot(page, out, "18-ownership-hotfiles")
+
+    # 19 — the watch list: single-owner files, ranked by commits.
+    scroll_to_section(page, "[data-section='risks']")
+    page.wait_for_timeout(700)
+    shot(page, out, "19-ownership-risks")
+
+    # 20 — one file: owners, reviewer suggestions, recent commits.
+    page.goto(f"{base}/console/ownership?file=src/flask/app.py", wait_until="load")
+    page.wait_for_selector("[data-ownership='ready']", timeout=20000)
+    page.wait_for_selector("[data-file-scope]", timeout=20000)
+    page.wait_for_timeout(1200)  # owner rows + bars land
+    scroll_to_section(page, "[data-section='reviewers']", gap=96)
+    page.wait_for_timeout(700)
+    shot(page, out, "20-ownership-file")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8787", help="live console")
@@ -365,6 +423,7 @@ def main() -> int:
             "crew",
             "history",
             "impact",
+            "ownership",
         ],
         default="all",
     )
@@ -410,6 +469,8 @@ def main() -> int:
             run_history(page, base, out)
         if args.scene in ("all", "impact"):
             run_impact(page, base, out)
+        if args.scene in ("all", "ownership"):
+            run_ownership(page, base, out)
 
         browser.close()
 

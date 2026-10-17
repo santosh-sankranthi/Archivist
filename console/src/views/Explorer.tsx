@@ -793,14 +793,24 @@ function Inspector({
           <>
             <div className={styles.historyHead}>
               <span className={styles.sectionLabel}>Recent history</span>
-              <button
-                type="button"
-                className={styles.historyLink}
-                title="scrub this file's full history in the time machine"
-                onClick={() => navigate(href("/history", { file: target.path }))}
-              >
-                time machine →
-              </button>
+              <span className={styles.historyLinks}>
+                <button
+                  type="button"
+                  className={styles.historyLink}
+                  title="scrub this file's full history in the time machine"
+                  onClick={() => navigate(href("/history", { file: target.path }))}
+                >
+                  time machine →
+                </button>
+                <button
+                  type="button"
+                  className={styles.historyLink}
+                  title="who owns this file — owners, reviewers, recent commits"
+                  onClick={() => navigate(href("/ownership", { file: target.path }))}
+                >
+                  ownership →
+                </button>
+              </span>
             </div>
             <div className={styles.historyList}>
               {payload.history.map((row) => (
