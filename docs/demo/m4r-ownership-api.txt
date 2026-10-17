@@ -1,0 +1,58 @@
+# /api/graph/ownership — live check (M4R ownership, server side)
+# 2026-10-17T04:36Z · repo:flask · archivist-console unit :8787 · served by rev with this endpoint
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/ownership'
+  scope=repo · clock=2026-10-17 (repo head ts 1791381774)
+  totals: {"commits": 5562, "commits_with_diff": 3828, "files": 643, "authors": 872, "file_changes": 9489}
+  people (top 3 of 872):
+    Armin Ronacher     975 commits · 302 files · 25.5% of attributed commits · 0 in last 365d
+    David Lord         824 commits · 420 files · 21.5% of attributed commits · 51 in last 365d
+    Markus Unterwaditzer 133 commits · 177 files · 3.5% · 0 in last 365d
+  hot files (most-touched, top 3 of 643):
+    flask/app.py        355 commits · churn 8,823 · owners Armin 40.8%, David 11.0%
+    CHANGES.rst         344 commits · churn 5,128 · owners David 67.4%, pgjones 5.2%
+    CHANGES             318 commits · churn 1,912 · owners Armin 56.6%, David 12.3%
+  single-owner files (≥6 commits, ≥80% one author) — 43 total, top 3:
+    tests/flask_tests.py    127 commits · 87.4% one author · 11 authors
+    src/flask/__init__.py    70 commits · 90.0% one author · 7 authors
+    pyproject.toml           58 commits · 91.4% one author · 5 authors
+  notes include: "ownership is inferred from diff-bearing commit history — the graph
+    holds no CODEOWNERS", "3828 of 5562 commits carry file attribution (merge/no-diff
+    commits do not)", "authors are grouped by email", "bot detection is a name
+    heuristic ('[bot]' suffix); bots are counted, not hidden".
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/ownership?file=src/flask/app.py'
+  file: {"path": "src/flask/app.py", "lang": "python", "loc": 1625, "commits": 139,
+         "authors": 29, "churn": 10107, "added": 5866, "removed": 4241,
+         "first_ts": 1559401225, "last_ts": 1791381700, "symbols": 41, "tests": false}
+  owners (top 5 of 29, shares over all 139 commits):
+    David Lord       88 commits · 63.3% · 8 in last 365d · last touch 2026-10-07
+    pgjones          22 commits · 15.8% · 0 in last 365d · last touch 2024-06-05
+    Jonah Lawrence    2 commits ·  1.4%
+    Adrian Moennich   2 commits ·  1.4%
+    lkk7              1 commit  ·  0.7% · 1 in last 365d
+  reviewers (2x recent + all-time, heuristic — not policy):
+    David Lord — "88 commit(s) (8 in the last 365 days), last touch 2026-10-07"
+    pgjones   — "22 commit(s) (0 in the last 365 days), last touch 2024-06-05"
+  recent commits (newest first): 329c32b9 "fix dev" · d73fa1cd "fix docs ref" · 81798b40 "fix typos"
+  related path: flask/app.py — 355 commits, 2010-07-02 → 2019-06-26 (earlier);
+    "likely pre-src-layout path; its history is not merged into these totals".
+
+$ curl -s 'http://127.0.0.1:8787/api/graph/ownership?symbol=url_for'
+  resolves symbol → file: src/flask/helpers.py
+  owners: David Lord 58 commits (64.4%, 5 recent) · pgjones 10 (11.1%) · …
+  related path: flask/helpers.py — 205 commits (earlier, not merged)
+
+# direct FalkorDB cross-checks (console numbers == graph numbers):
+  files with attribution: 643 (endpoint 643) · commits with diff: 3828 (endpoint 3828)
+  file_changes: 9489 (endpoint 9489) · distinct file-author pairs: 3441
+  src/flask/app.py commits: 139 · David 88 · pgjones 22 (endpoint identical)
+  flask/app.py predecessor: 355 commits (endpoint related path 355)
+  Armin by email: armin.ronacher@active-4.com 975 + mitsuhiko@nausicaa.local 2
+    → endpoint groups by email (975 shown), as the note says; by-name would say 977.
+  David Lord commits in window: 51 (endpoint recent_commits 51)
+
+# public tunnel edge: /api/graph/ownership?file=src/flask/app.py → 200 (139 commits, 12 owners shown)
+
+# suite: pytest 126/126 · ruff + black clean · test_webapp.py ownership tests 4 new
+# (fixture: 3 authors, shared file, single-owner file; caps and ambiguity exercised)

@@ -30,6 +30,8 @@ Endpoints:
                                window of commits (and top files)
     GET  /api/graph/impact     blast radius of one symbol — the transitive
                                reverse-CALLS cone, with a file rollup
+    GET  /api/graph/ownership  who knows what — authors ranked from the
+                               diff-bearing history of the repo or one file
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
     POST /api/ask              run the agent loop (503 until a key is set)
@@ -101,6 +103,18 @@ MAX_HISTORY_FILES = 12
 MAX_IMPACT_SYMBOLS = 150
 MAX_IMPACT_FILES = 60
 MAX_IMPACT_DEPTH = 6
+# /api/graph/ownership (M4R ownership): who touched what. Ownership is
+# inferred from diff-bearing commit history only — the graph holds no
+# CODEOWNERS. Shares are exact over that history; every cap is reported.
+MAX_OWNERS = 12
+MAX_OWNERSHIP_FILES = 12
+MAX_OWNERSHIP_RISKS = 12
+MAX_OWNERSHIP_COMMITS = 12
+MAX_HOT_FILE_OWNERS = 4
+MAX_SUGGESTED_REVIEWERS = 3
+OWNERSHIP_RECENT_DAYS = 365
+OWNERSHIP_RISK_MIN_COMMITS = 6
+OWNERSHIP_RISK_SHARE = 0.8
 # /api/graph/induced (M4R step 3): per-step evidence ref caps, reported in
 # notes when trimmed — the same honesty rule as every other projection.
 MAX_INDUCED_STEPS = 12
@@ -307,6 +321,25 @@ def _induced_refs(
     return kept
 
 
+def _is_bot_name(name: str | None) -> bool:
+    """Name-only bot heuristic: ``[bot]`` suffix (GitHub Apps) or *BotApp*.
+
+    The graph has no account-type data, so this can only flag the naming
+    convention common on GitHub. Bots stay in the numbers — hiding them
+    would make the shares disagree with the commit count — but the payload
+    marks them so the console can draw them differently.
+    """
+    lowered = (name or "").lower()
+    return lowered.endswith(("[bot]", "botapp"))
+
+
+def _utc_date(ts) -> str:
+    """Epoch seconds as a UTC calendar date (for human-readable notes)."""
+    if not ts:
+        return "never"
+    return datetime.fromtimestamp(int(ts), UTC).strftime("%Y-%m-%d")
+
+
 def _is_test_path(path: str) -> bool:
     """Path-only test heuristic: test dirs or ``test_*.py`` / ``*_test.py``.
 
@@ -468,6 +501,8 @@ class WebApp:
                     return self._json(200, self._graph_history(query))
                 if path == "/api/graph/impact":
                     return self._json(200, self._graph_impact(query))
+                if path == "/api/graph/ownership":
+                    return self._json(200, self._graph_ownership(query))
                 if path == "/api/graph/find":
                     return self._json(200, self._graph_find(query))
                 if path == "/api/graph/file":
@@ -1549,6 +1584,546 @@ class WebApp:
                 {"hops": hops, "symbols": levels[hops]} for hops in sorted(levels)
             ],
             "files": files,
+            "notes": notes,
+        }
+
+    # -- ownership (M4R) ----------------------------------------------------
+
+    def _graph_ownership(self, query: dict) -> dict:
+        """Who knows what (M4R): ownership inferred from commit history.
+
+        Two scopes, one contract. Repo scope (no params) ranks the people
+        with the most diff-bearing history, shows the hottest files with
+        their owner mix, and names single-owner files (bus-factor risk).
+        File scope (``?file=`` or ``?symbol=``) ranks that file's authors
+        with recency, lists its recent commits, and suggests reviewers.
+
+        Honesty rules that shaped the queries: ownership is *inferred* —
+        the graph holds no CODEOWNERS — and only diff-bearing commits carry
+        file attribution (merges do not). Authors are grouped by email, so
+        one human with several emails is several rows. History is keyed by
+        the path at commit time; the file payload surfaces same-basename
+        paths with disjoint windows as likely predecessors instead of
+        silently merging them. Every cap is exact and reported.
+        """
+        file = (query.get("file") or [None])[0] or None
+        symbol = (query.get("symbol") or [None])[0] or None
+        if symbol:
+            scope = " AND s.file = $file" if file else ""
+            params: dict = {"name": symbol, "limit": 25}
+            if file:
+                params["file"] = file
+            candidates = self._ro(
+                f"""
+                MATCH (s:Symbol)
+                WHERE (s.qualname = $name OR s.name = $name){scope}
+                RETURN s.file AS file, s.qualname AS qualname,
+                       s.qualname = $name AS qual_hit
+                ORDER BY qual_hit DESC, file, qualname
+                LIMIT $limit
+                """,
+                params,
+            ).result_set
+            pool = [row for row in candidates if row[2]] or list(candidates)
+            if not pool:
+                where = f" in {file}" if file else ""
+                raise ApiError(404, f"no Symbol named `{symbol}`{where}")
+            if len(pool) > 1:
+                names = ", ".join(f"{row[0]}:{row[1]}" for row in pool[:8])
+                raise ApiError(
+                    400,
+                    "ambiguous symbol — pass ?file= or the exact qualname; "
+                    f"candidates: {names}",
+                )
+            file = pool[0][0]
+        if file:
+            return self._ownership_file(file)
+        return self._ownership_repo()
+
+    def _ownership_repo(self) -> dict:
+        """Repo-wide ownership: people, hot files, and single-owner files."""
+        clock = self._scalar("MATCH (c:Commit) RETURN max(c.ts)")
+        if clock is None:
+            return {
+                "scope": "repo",
+                "clock": None,
+                "recent_days": OWNERSHIP_RECENT_DAYS,
+                "totals": {
+                    "commits": 0,
+                    "commits_with_diff": 0,
+                    "files": 0,
+                    "authors": 0,
+                    "file_changes": 0,
+                },
+                "people": [],
+                "people_total": 0,
+                "hot_files": [],
+                "hot_files_total": 0,
+                "risks": [],
+                "risks_total": 0,
+                "notes": ["no commits in this graph — ownership is unknown"],
+            }
+        cutoff = int(clock) - OWNERSHIP_RECENT_DAYS * 86400
+        commits = self._scalar("MATCH (c:Commit) RETURN count(c)") or 0
+        commits_with_diff = (
+            self._scalar(
+                "MATCH (c:Commit)-[:MODIFIED]->(:File) RETURN count(DISTINCT c)"
+            )
+            or 0
+        )
+        files_total = self._scalar("MATCH (f:File) RETURN count(f)") or 0
+        file_changes = (
+            self._scalar("MATCH (:Commit)-[m:MODIFIED]->(:File) RETURN count(m)") or 0
+        )
+        authors_total = (
+            self._scalar(
+                "MATCH (a:Author)-[:AUTHORED]->(:Commit)-[:MODIFIED]->(:File) "
+                "RETURN count(DISTINCT a)"
+            )
+            or 0
+        )
+
+        people_rows = self._ro(
+            """
+            MATCH (a:Author)-[:AUTHORED]->(c:Commit)-[m:MODIFIED]->(f:File)
+            RETURN a.email AS email, a.name AS name,
+                   count(DISTINCT c) AS commits, count(DISTINCT f) AS files,
+                   sum(coalesce(m.added, 0) + coalesce(m.removed, 0)) AS churn,
+                   max(c.ts) AS last_ts
+            ORDER BY commits DESC, last_ts DESC, email
+            LIMIT $limit
+            """,
+            {"limit": MAX_OWNERS},
+        ).result_set
+        recent_rows = self._ro(
+            """
+            MATCH (a:Author)-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(:File)
+            WHERE c.ts >= $cutoff
+            RETURN a.email AS email, count(DISTINCT c) AS commits
+            """,
+            {"cutoff": cutoff},
+        ).result_set
+        recent = {row[0]: int(row[1]) for row in recent_rows}
+        people = [
+            {
+                "name": row[1],
+                "email": row[0],
+                "commits": int(row[2]),
+                "files": int(row[3]),
+                "churn": int(row[4] or 0),
+                "last_ts": int(row[5]) if row[5] else None,
+                "recent_commits": recent.get(row[0], 0),
+                "share": (
+                    round(row[2] / commits_with_diff, 3) if commits_with_diff else 0.0
+                ),
+                "bot": _is_bot_name(row[1]),
+            }
+            for row in people_rows
+        ]
+
+        file_rows = self._ro("""
+            MATCH (a:Author)-[:AUTHORED]->(c:Commit)-[m:MODIFIED]->(f:File)
+            RETURN f.path AS path, a.email AS email, a.name AS name,
+                   count(DISTINCT c) AS commits,
+                   sum(coalesce(m.added, 0) + coalesce(m.removed, 0)) AS churn,
+                   max(c.ts) AS last_ts
+            ORDER BY path, commits DESC
+            """).result_set
+        per_file: dict[str, dict] = {}
+        for path, email, name, fcommits, churn, last_ts in file_rows:
+            entry = per_file.setdefault(
+                path,
+                {
+                    "path": path,
+                    "commits": 0,
+                    "churn": 0,
+                    "last_ts": 0,
+                    "owners": [],
+                },
+            )
+            entry["commits"] += int(fcommits)
+            entry["churn"] += int(churn or 0)
+            entry["last_ts"] = max(entry["last_ts"], int(last_ts or 0))
+            entry["owners"].append(
+                {
+                    "name": name,
+                    "email": email,
+                    "commits": int(fcommits),
+                    "churn": int(churn or 0),
+                    "last_ts": int(last_ts) if last_ts else None,
+                    "bot": _is_bot_name(name),
+                }
+            )
+        for entry in per_file.values():
+            entry["owners"].sort(key=lambda owner: (-owner["commits"], owner["email"]))
+
+        hot_sorted = sorted(
+            per_file.values(),
+            key=lambda entry: (-entry["commits"], -entry["churn"], entry["path"]),
+        )
+        hot_files = []
+        owners_trimmed = 0
+        for entry in hot_sorted[:MAX_OWNERSHIP_FILES]:
+            owners = entry["owners"]
+            if len(owners) > MAX_HOT_FILE_OWNERS:
+                owners_trimmed += 1
+            hot_files.append(
+                {
+                    "path": entry["path"],
+                    "commits": entry["commits"],
+                    "churn": entry["churn"],
+                    "authors": len(owners),
+                    "last_ts": entry["last_ts"] or None,
+                    "tests": _is_test_path(entry["path"]),
+                    "owners": [
+                        {
+                            "name": owner["name"],
+                            "email": owner["email"],
+                            "commits": owner["commits"],
+                            "share": round(owner["commits"] / entry["commits"], 3),
+                            "bot": owner["bot"],
+                        }
+                        for owner in owners[:MAX_HOT_FILE_OWNERS]
+                    ],
+                }
+            )
+
+        risk_rows = []
+        for entry in per_file.values():
+            if entry["commits"] < OWNERSHIP_RISK_MIN_COMMITS:
+                continue
+            top = entry["owners"][0]
+            share = top["commits"] / entry["commits"]
+            if share < OWNERSHIP_RISK_SHARE:
+                continue
+            risk_rows.append(
+                {
+                    "path": entry["path"],
+                    "commits": entry["commits"],
+                    "churn": entry["churn"],
+                    "authors": len(entry["owners"]),
+                    "primary_share": round(share, 3),
+                    "last_ts": entry["last_ts"] or None,
+                    "tests": _is_test_path(entry["path"]),
+                    "owners": [
+                        {
+                            "name": owner["name"],
+                            "email": owner["email"],
+                            "commits": owner["commits"],
+                            "share": round(owner["commits"] / entry["commits"], 3),
+                            "bot": owner["bot"],
+                        }
+                        for owner in entry["owners"][:MAX_HOT_FILE_OWNERS]
+                    ],
+                }
+            )
+        risk_rows.sort(key=lambda row: (-row["commits"], row["path"]))
+        risks_total = len(risk_rows)
+
+        notes = [
+            (
+                "ownership is inferred from diff-bearing commit history — the "
+                "graph holds no CODEOWNERS"
+            ),
+            (
+                f"{commits_with_diff} of {commits} commits carry file attribution "
+                "(merge/no-diff commits do not)"
+            ),
+            (
+                "authors are grouped by email — one person with several emails "
+                "appears more than once"
+            ),
+            (
+                "bot detection is a name heuristic ('[bot]' suffix); bots are "
+                "counted, not hidden"
+            ),
+            (
+                f"single-owner files = at least {OWNERSHIP_RISK_MIN_COMMITS} "
+                f"commits with at least {int(OWNERSHIP_RISK_SHARE * 100)}% by "
+                "one author"
+            ),
+            (
+                "history is keyed by path at commit time — renames split a "
+                "file's ownership"
+            ),
+        ]
+        if authors_total > len(people):
+            notes.append(
+                f"people capped at {MAX_OWNERS} ({authors_total - len(people)} "
+                "more not shown; every row above is exact)"
+            )
+        if len(hot_sorted) > MAX_OWNERSHIP_FILES:
+            notes.append(
+                f"hot files capped at {MAX_OWNERSHIP_FILES} "
+                f"({len(hot_sorted) - MAX_OWNERSHIP_FILES} not shown)"
+            )
+        if owners_trimmed:
+            notes.append(
+                f"per-file owner lists capped at {MAX_HOT_FILE_OWNERS} "
+                f"({owners_trimmed} hot file(s) had more)"
+            )
+        if risks_total > MAX_OWNERSHIP_RISKS:
+            notes.append(
+                f"single-owner files capped at {MAX_OWNERSHIP_RISKS} "
+                f"({risks_total - MAX_OWNERSHIP_RISKS} not shown)"
+            )
+        return {
+            "scope": "repo",
+            "clock": int(clock),
+            "recent_days": OWNERSHIP_RECENT_DAYS,
+            "totals": {
+                "commits": int(commits),
+                "commits_with_diff": int(commits_with_diff),
+                "files": int(files_total),
+                "authors": int(authors_total),
+                "file_changes": int(file_changes),
+            },
+            "people": people,
+            "people_total": int(authors_total),
+            "hot_files": hot_files,
+            "hot_files_total": len(hot_sorted),
+            "risks": risk_rows[:MAX_OWNERSHIP_RISKS],
+            "risks_total": risks_total,
+            "notes": notes,
+        }
+
+    def _ownership_file(self, path: str) -> dict:
+        """One file's owners, recent commits, and likely-renamed predecessors."""
+        meta = self._ro(
+            "MATCH (f:File {path: $path}) RETURN f.lang AS lang, f.loc AS loc",
+            {"path": path},
+        ).result_set
+        if not meta:
+            raise ApiError(404, f"no File `{path}` in {self.graph}")
+        clock = self._scalar("MATCH (c:Commit) RETURN max(c.ts)")
+        cutoff = (int(clock) if clock else 0) - OWNERSHIP_RECENT_DAYS * 86400
+
+        total_row = self._ro(
+            """
+            MATCH (c:Commit)-[m:MODIFIED]->(f:File {path: $path})
+            RETURN count(c) AS commits,
+                   sum(coalesce(m.added, 0)) AS added,
+                   sum(coalesce(m.removed, 0)) AS removed,
+                   min(c.ts) AS first_ts, max(c.ts) AS last_ts
+            """,
+            {"path": path},
+        ).result_set
+        total_commits, added, removed, first_ts, last_ts = (
+            total_row[0] if total_row else (0, 0, 0, None, None)
+        )
+        added = int(added or 0)
+        removed = int(removed or 0)
+
+        owner_rows = self._ro(
+            """
+            MATCH (a:Author)-[:AUTHORED]->(c:Commit)-[m:MODIFIED]->(f:File {path: $path})
+            RETURN a.email AS email, a.name AS name,
+                   count(DISTINCT c) AS commits,
+                   sum(coalesce(m.added, 0)) AS added,
+                   sum(coalesce(m.removed, 0)) AS removed,
+                   min(c.ts) AS first_ts, max(c.ts) AS last_ts
+            ORDER BY commits DESC, last_ts DESC, email
+            """,
+            {"path": path},
+        ).result_set
+        recent_owner_rows = self._ro(
+            """
+            MATCH (a:Author)-[:AUTHORED]->(c:Commit)-[:MODIFIED]->(f:File {path: $path})
+            WHERE c.ts >= $cutoff
+            RETURN a.email AS email, count(DISTINCT c) AS commits
+            """,
+            {"path": path, "cutoff": cutoff},
+        ).result_set
+        recent_by_owner = {row[0]: int(row[1]) for row in recent_owner_rows}
+        owners = [
+            {
+                "name": row[1],
+                "email": row[0],
+                "commits": int(row[2]),
+                "added": int(row[3] or 0),
+                "removed": int(row[4] or 0),
+                "churn": int(row[3] or 0) + int(row[4] or 0),
+                "first_ts": int(row[5]) if row[5] else None,
+                "last_ts": int(row[6]) if row[6] else None,
+                "recent_commits": recent_by_owner.get(row[0], 0),
+                "share": round(row[2] / total_commits, 3) if total_commits else 0.0,
+                "bot": _is_bot_name(row[1]),
+            }
+            for row in owner_rows
+        ]
+
+        reviewers = []
+        if owners:
+            ranked = sorted(
+                owners,
+                key=lambda owner: (
+                    -(owner["recent_commits"] * 2 + owner["commits"]),
+                    -owner["commits"],
+                    owner["email"],
+                ),
+            )[:MAX_SUGGESTED_REVIEWERS]
+            reviewers = [
+                {
+                    "name": owner["name"],
+                    "email": owner["email"],
+                    "commits": owner["commits"],
+                    "recent_commits": owner["recent_commits"],
+                    "last_ts": owner["last_ts"],
+                    "why": (
+                        f"{owner['commits']} commit(s) "
+                        f"({owner['recent_commits']} in the last "
+                        f"{OWNERSHIP_RECENT_DAYS} days), last touch "
+                        f"{_utc_date(owner['last_ts'])}"
+                    ),
+                }
+                for owner in ranked
+            ]
+
+        recent_rows = self._ro(
+            """
+            MATCH (a:Author)-[:AUTHORED]->(c:Commit)-[m:MODIFIED]->(f:File {path: $path})
+            RETURN c.sha AS sha, c.summary AS summary, c.ts AS ts,
+                   a.name AS name, a.email AS email,
+                   coalesce(m.added, 0) AS added,
+                   coalesce(m.removed, 0) AS removed
+            ORDER BY c.ts DESC, c.seq DESC
+            LIMIT $limit
+            """,
+            {"path": path, "limit": MAX_OWNERSHIP_COMMITS},
+        ).result_set
+        recent_total = (
+            self._scalar(
+                "MATCH (c:Commit)-[:MODIFIED]->(f:File {path: $path}) "
+                "WHERE c.ts >= $cutoff RETURN count(c)",
+                {"path": path, "cutoff": cutoff},
+            )
+            or 0
+        )
+
+        related: list[dict] = []
+        if first_ts and last_ts:
+            # The src-layout move is the one rename this graph can name
+            # without guessing: same path with/without the ``src/`` prefix.
+            # Basename matching was tried and rejected — it paired unrelated
+            # files that happen to share a name (tests/helpers.py vs
+            # flask/helpers.py), which is exactly the slop this view avoids.
+            alias = path[4:] if path.startswith("src/") else f"src/{path}"
+            alias_rows = self._ro(
+                """
+                MATCH (c:Commit)-[:MODIFIED]->(f:File {path: $alias})
+                RETURN count(c) AS commits, min(c.ts) AS first_ts,
+                       max(c.ts) AS last_ts
+                """,
+                {"alias": alias},
+            ).result_set
+            if alias_rows and alias_rows[0][0]:
+                a_commits, a_first, a_last = alias_rows[0]
+                related.append(
+                    {
+                        "path": alias,
+                        "commits": int(a_commits),
+                        "first_ts": int(a_first) if a_first else None,
+                        "last_ts": int(a_last) if a_last else None,
+                        "relation": (
+                            "earlier"
+                            if a_first and int(a_first) < int(first_ts)
+                            else "later"
+                        ),
+                    }
+                )
+
+        notes = [
+            (
+                "ownership is inferred from diff-bearing commit history — the "
+                "graph holds no CODEOWNERS"
+            ),
+            (
+                "a commit appears here only if it carries a diff for this path "
+                "(merge commits never do)"
+            ),
+            (
+                "authors are grouped by email — one person with several emails "
+                "appears more than once"
+            ),
+            (
+                "bot detection is a name heuristic ('[bot]' suffix); bots are "
+                "counted, not hidden"
+            ),
+        ]
+        if not owners:
+            notes.append(
+                "no diff-bearing commits touch this path — ownership is "
+                "unknown (new file, or only renamed into place)"
+            )
+        if owners and recent_total == 0:
+            notes.append(
+                f"no commits in the last {OWNERSHIP_RECENT_DAYS} days — "
+                "these owners may be stale"
+            )
+        if len(owners) > MAX_OWNERS:
+            notes.append(
+                f"owners capped at {MAX_OWNERS} ({len(owners) - MAX_OWNERS} "
+                "more not shown; shares are over all commits)"
+            )
+        if reviewers:
+            notes.append(
+                "suggested reviewers rank owners by 2x recent + all-time "
+                "commits — a heuristic, not policy"
+            )
+        if related:
+            notes.append(
+                "related path = this path with/without the src/ prefix — a "
+                "likely pre-src-layout path; its history is not merged into "
+                "these totals"
+            )
+        if _is_test_path(path):
+            notes.append(
+                "test paths are a heuristic (tests/, test_*.py, *_test.py), "
+                "not runtime evidence"
+            )
+        return {
+            "scope": "file",
+            "path": path,
+            "clock": int(clock) if clock else None,
+            "recent_days": OWNERSHIP_RECENT_DAYS,
+            "file": {
+                "path": path,
+                "lang": meta[0][0],
+                "loc": meta[0][1],
+                "commits": int(total_commits),
+                "authors": len(owners),
+                "churn": added + removed,
+                "added": added,
+                "removed": removed,
+                "first_ts": int(first_ts) if first_ts else None,
+                "last_ts": int(last_ts) if last_ts else None,
+                "symbols": int(
+                    self._scalar(
+                        "MATCH (:File {path: $path})-[:DEFINES]->(s:Symbol) "
+                        "RETURN count(s)",
+                        {"path": path},
+                    )
+                    or 0
+                ),
+                "tests": _is_test_path(path),
+            },
+            "owners": owners[:MAX_OWNERS],
+            "owners_total": len(owners),
+            "reviewers": reviewers,
+            "recent_commits": [
+                {
+                    "sha": row[0],
+                    "summary": row[1],
+                    "ts": int(row[2]) if row[2] else None,
+                    "author": row[3],
+                    "email": row[4],
+                    "added": int(row[5]),
+                    "removed": int(row[6]),
+                }
+                for row in recent_rows
+            ],
+            "recent_total": int(recent_total),
+            "related_paths": related,
             "notes": notes,
         }
 

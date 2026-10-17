@@ -23,6 +23,7 @@ from typing import ClassVar
 
 import pytest
 
+from archivist import webapp as webapp_module
 from archivist.graph import GraphWriter
 from archivist.ingest import ingest
 from archivist.llm import LLMResponse
@@ -944,19 +945,26 @@ def test_crew_empty_graph_is_honest(web_server: str):
 # -- /api/graph/history (M4R time machine) -----------------------------------
 
 
-def _commit(repo, *args: str, when: str | None = None) -> None:
+def _commit(
+    repo,
+    *args: str,
+    when: str | None = None,
+    name: str = "Dev One",
+    email: str = "dev@example.com",
+) -> None:
     """One git command with a deterministic identity (mirrors conftest).
 
     ``when`` overrides author+committer dates (ISO-8601) so tests can place
     commits in specific months — the time machine's buckets are calendar
     months, and a test that never crosses a month boundary cannot see them.
+    ``name``/``email`` let ownership tests build real multi-author history.
     """
     env = {
         **os.environ,
-        "GIT_AUTHOR_NAME": "Dev One",
-        "GIT_AUTHOR_EMAIL": "dev@example.com",
-        "GIT_COMMITTER_NAME": "Dev One",
-        "GIT_COMMITTER_EMAIL": "dev@example.com",
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
     }
     if when:
         env["GIT_AUTHOR_DATE"] = when
@@ -1248,3 +1256,181 @@ def test_impact_refuses_bad_or_ambiguous_symbols(impact_server: str):
     assert status_only(base + "?symbol=leaf&depth=0") == 400
     assert status_only(base + "?symbol=leaf&depth=x") == 400
     assert status_only(base + "?symbol=leaf&limit=0") == 400
+
+
+# -- Ownership (/api/graph/ownership) ----------------------------------------
+
+
+@pytest.fixture()
+def ownership_server(tmp_path, falkordb_or_skip, temp_graph):
+    """Three authors: a shared file (2:1), a solo file (1), a bus-factor file.
+
+    ``c.py`` carries six commits by one author, which is what the single-owner
+    rule looks for; ``a.py`` is shared by Alice and Bob so its shares exercise
+    the exact-fraction path.
+    """
+    host, port = falkordb_or_skip
+    repo = tmp_path / "own"
+    repo.mkdir()
+    _commit(repo, "init", "-q", "-b", "main")
+    (repo / "a.py").write_text("def dup():\n    return 1\n\ndef a():\n    return 2\n")
+    _commit(repo, "add", "a.py")
+    _commit(
+        repo,
+        "commit",
+        "-q",
+        "-m",
+        "alice adds a",
+        when="2024-01-05T12:00:00+00:00",
+        name="Alice",
+        email="alice@example.com",
+    )
+    (repo / "b.py").write_text("def dup():\n    return 3\n\ndef b():\n    return 4\n")
+    _commit(repo, "add", "b.py")
+    _commit(
+        repo,
+        "commit",
+        "-q",
+        "-m",
+        "bob adds b",
+        when="2024-02-05T12:00:00+00:00",
+        name="Bob",
+        email="bob@example.com",
+    )
+    (repo / "a.py").write_text(
+        "def dup():\n    return 1\n\ndef a():\n    return 2\n\n\ndef a2():\n    return 5\n"
+    )
+    _commit(repo, "add", "a.py")
+    _commit(
+        repo,
+        "commit",
+        "-q",
+        "-m",
+        "alice extends a",
+        when="2024-03-05T12:00:00+00:00",
+        name="Alice",
+        email="alice@example.com",
+    )
+    (repo / "a.py").write_text(
+        "def dup():\n    return 1\n\ndef a():\n    return 2\n\n\ndef a2():\n"
+        "    return 5\n\n\ndef a3():\n    return 6\n"
+    )
+    _commit(repo, "add", "a.py")
+    _commit(
+        repo,
+        "commit",
+        "-q",
+        "-m",
+        "bob touches a",
+        when="2024-04-05T12:00:00+00:00",
+        name="Bob",
+        email="bob@example.com",
+    )
+    (repo / "c.py").write_text("def c():\n    return 0\n")
+    _commit(repo, "add", "c.py")
+    _commit(
+        repo,
+        "commit",
+        "-q",
+        "-m",
+        "carol adds c",
+        when="2024-05-05T12:00:00+00:00",
+        name="Carol",
+        email="carol@example.com",
+    )
+    for index in range(5):
+        with (repo / "c.py").open("a") as handle:
+            handle.write(f"\ndef c{index}():\n    return {index}\n")
+        _commit(repo, "add", "c.py")
+        _commit(
+            repo,
+            "commit",
+            "-q",
+            "-m",
+            f"carol edits c{index}",
+            when=f"2024-{6 + index:02d}-05T12:00:00+00:00",
+            name="Carol",
+            email="carol@example.com",
+        )
+    ingest(repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+def test_ownership_repo_ranks_people_and_names_single_owner_files(
+    ownership_server: str,
+):
+    status, data = get_json(ownership_server + "/api/graph/ownership")
+    assert status == 200
+    assert data["scope"] == "repo"
+    assert data["totals"] == {
+        "commits": 10,
+        "commits_with_diff": 10,
+        "files": 3,
+        "authors": 3,
+        "file_changes": 10,
+    }
+    # Carol has six diff-bearing commits; Bob's last touch (April) outranks
+    # Alice's (March) on the tie-break, never on commit count.
+    assert [person["name"] for person in data["people"]] == [
+        "Carol",
+        "Bob",
+        "Alice",
+    ]
+    assert data["people"][0]["share"] == 0.6
+    assert data["hot_files"][0]["path"] == "c.py"
+    assert data["hot_files"][0]["commits"] == 6
+    assert data["hot_files"][0]["owners"][0]["share"] == 1.0
+    # c.py is the only file past the six-commit bar with one owner.
+    assert [risk["path"] for risk in data["risks"]] == ["c.py"]
+    assert data["risks"][0]["primary_share"] == 1.0
+    assert any("no CODEOWNERS" in note for note in data["notes"])
+
+
+def test_ownership_file_reports_exact_shares_and_recent_history(
+    ownership_server: str,
+):
+    status, data = get_json(ownership_server + "/api/graph/ownership?file=a.py")
+    assert status == 200
+    assert data["scope"] == "file"
+    assert data["file"]["commits"] == 3
+    assert data["file"]["authors"] == 2
+    owners = {owner["email"]: owner for owner in data["owners"]}
+    assert owners["alice@example.com"]["commits"] == 2
+    assert owners["alice@example.com"]["share"] == 0.667
+    assert owners["bob@example.com"]["share"] == 0.333
+    assert data["recent_commits"][0]["author"] == "Bob"
+    assert data["recent_commits"][0]["summary"] == "bob touches a"
+    assert data["reviewers"][0]["name"] == "Alice"
+    assert "commit(s)" in data["reviewers"][0]["why"]
+    assert data["recent_total"] == 3
+    assert any("not policy" in note for note in data["notes"])
+
+
+def test_ownership_resolves_symbols_and_refuses_ambiguity(ownership_server: str):
+    base = ownership_server + "/api/graph/ownership"
+    status, data = get_json(base + "?symbol=a")
+    assert status == 200 and data["path"] == "a.py"
+    # `dup` is defined in both files: no silent pick, a scoped answer or 400.
+    assert status_only(base + "?symbol=dup") == 400
+    status, scoped = get_json(base + "?symbol=dup&file=b.py")
+    assert status == 200 and scoped["path"] == "b.py"
+    assert status_only(base + "?file=nope.py") == 404
+    assert status_only(base + "?symbol=nope") == 404
+
+
+def test_ownership_caps_are_disclosed(ownership_server: str, monkeypatch):
+    monkeypatch.setattr(webapp_module, "MAX_OWNERS", 1)
+    _, data = get_json(ownership_server + "/api/graph/ownership")
+    assert len(data["people"]) == 1
+    assert any("people capped at 1 (2 more not shown" in n for n in data["notes"])
+
+    monkeypatch.setattr(webapp_module, "MAX_OWNERS", 1)
+    _, file_data = get_json(ownership_server + "/api/graph/ownership?file=a.py")
+    assert len(file_data["owners"]) == 1
+    assert any("owners capped at 1 (1 more not shown" in n for n in file_data["notes"])
