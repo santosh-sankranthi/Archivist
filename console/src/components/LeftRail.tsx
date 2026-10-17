@@ -13,6 +13,7 @@ interface Props {
   path: string;
   state: GraphState | null;
   overview: Overview | null;
+  overviewError: string | null;
   onOpenPalette: () => void;
 }
 
@@ -29,7 +30,7 @@ const NAV = [
 ];
 
 /** Left rail: view nav, live search over the graph, hub quick-lists, memory footer. */
-export function LeftRail({ path, state, overview, onOpenPalette }: Props) {
+export function LeftRail({ path, state, overview, overviewError, onOpenPalette }: Props) {
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query.trim(), 250);
   const find = useApi<FindResult>(
@@ -41,6 +42,7 @@ export function LeftRail({ path, state, overview, onOpenPalette }: Props) {
   const symbols = overview?.hubs.symbols.slice(0, 6) ?? [];
   const modules = overview?.hubs.modules.slice(0, 6) ?? [];
   const memory = state?.memory ?? null;
+  const hubsDown = overviewError !== null && overview === null;
 
   return (
     <aside className={styles.rail}>
@@ -135,7 +137,9 @@ export function LeftRail({ path, state, overview, onOpenPalette }: Props) {
             </li>
           ))}
           {symbols.length === 0 ? (
-            <li className={styles.hint}>reading the graph…</li>
+            <li className={styles.hint}>
+              {hubsDown ? "graph overview unavailable — search still works" : "reading the graph…"}
+            </li>
           ) : null}
         </ul>
       </div>
@@ -157,7 +161,9 @@ export function LeftRail({ path, state, overview, onOpenPalette }: Props) {
             </li>
           ))}
           {modules.length === 0 ? (
-            <li className={styles.hint}>reading the graph…</li>
+            <li className={styles.hint}>
+              {hubsDown ? "graph overview unavailable — search still works" : "reading the graph…"}
+            </li>
           ) : null}
         </ul>
       </div>

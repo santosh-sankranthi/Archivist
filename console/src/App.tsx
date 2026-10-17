@@ -71,6 +71,8 @@ function Shell() {
         state={state.data}
         stateError={state.error?.message ?? null}
         overview={overview.data}
+        overviewError={overview.error?.message ?? null}
+        onRetryOverview={overview.reload}
       />
     );
   } else if (path === "/explorer") {
@@ -104,12 +106,13 @@ function Shell() {
       <TopBar state={state.data} onOpenPalette={() => setPaletteOpen(true)} />
       <div className={`${styles.main}${authRoute ? ` ${styles.mainAuth}` : ""}`}>
         {showRail ? (
-          <LeftRail
-            path={path}
-            state={state.data}
-            overview={overview.data}
-            onOpenPalette={() => setPaletteOpen(true)}
-          />
+            <LeftRail
+              path={path}
+              state={state.data}
+              overview={overview.data}
+              overviewError={overview.error?.message ?? null}
+              onOpenPalette={() => setPaletteOpen(true)}
+            />
         ) : null}
         <main className={styles.center}>
           <AnimatePresence mode="wait">

@@ -66,6 +66,8 @@ export interface ApiState<T> {
   data: T | null;
   error: ApiError | null;
   loading: boolean;
+  /** Re-fetch on demand (retry affordance); no-op while the path is null. */
+  reload: () => void;
 }
 
 /** Fetch `path` on change; `null` path stays idle. `refreshMs` re-polls
@@ -75,21 +77,23 @@ export function useApi<T>(path: string | null, refreshMs?: number): ApiState<T> 
     data: null,
     error: null,
     loading: path !== null,
+    reload: () => {},
   });
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     if (path === null) {
-      setState({ data: null, error: null, loading: false });
+      setState((prev) => ({ ...prev, data: null, error: null, loading: false }));
       return;
     }
     let alive = true;
     const load = () => {
       getJSON<T>(path)
         .then((data) => {
-          if (alive) setState({ data, error: null, loading: false });
+          if (alive) setState((prev) => ({ ...prev, data, error: null, loading: false }));
         })
         .catch((error: ApiError) => {
-          if (alive) setState({ data: null, error, loading: false });
+          if (alive) setState((prev) => ({ ...prev, data: null, error, loading: false }));
         });
     };
     setState((prev) => ({ ...prev, loading: prev.data === null, error: null }));
@@ -102,7 +106,8 @@ export function useApi<T>(path: string | null, refreshMs?: number): ApiState<T> 
       alive = false;
       window.clearInterval(timer);
     };
-  }, [path, refreshMs]);
+  }, [path, refreshMs, nonce]);
 
-  return state;
+  const reload = () => setNonce((value) => value + 1);
+  return { ...state, reload };
 }
