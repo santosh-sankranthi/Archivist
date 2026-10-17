@@ -45,6 +45,17 @@ export function CommandPalette({ open, graph, onClose }: Props) {
   const items = useMemo(() => buildPaletteItems(q.trim(), freshFind), [q, freshFind]);
   const groups = useMemo(() => groupPaletteItems(items), [items]);
   const activeIndex = Math.min(active, Math.max(0, items.length - 1));
+  // No graph matches: the search floor has been crossed, the response has
+  // landed for the current query, and it returned no symbols or files. In
+  // that case the only "ask" row is the free-text fallback, so we say so
+  // instead of implying an empty archive.
+  const noMatches =
+    q.trim().length >= 2 &&
+    find.data != null &&
+    !find.loading &&
+    find.data.query.trim().toLowerCase() === debounced.toLowerCase() &&
+    find.data.symbols.length === 0 &&
+    find.data.files.length === 0;
 
   // Fresh open: empty query, top selection, focus the input; remember who
   // had focus so Escape returns it where it was.
@@ -143,6 +154,7 @@ export function CommandPalette({ open, graph, onClose }: Props) {
                 type="text"
                 role="combobox"
                 aria-expanded="true"
+                aria-autocomplete="list"
                 aria-controls="palette-list"
                 aria-activedescendant={items.length ? `palette-opt-${activeIndex}` : undefined}
                 aria-label="Search symbols, files, and actions"
@@ -157,6 +169,11 @@ export function CommandPalette({ open, graph, onClose }: Props) {
             </div>
 
             <div className={styles.list} id="palette-list" role="listbox" aria-label="Results">
+              {noMatches ? (
+                <p className={styles.noMatches}>
+                  No symbol or file matches — press Enter to ask the archive instead.
+                </p>
+              ) : null}
               {groups.map((group) => (
                 <div key={`${group.kind}:${group.start}`} className={styles.group}>
                   <p className={styles.groupLabel}>{group.label}</p>

@@ -69,6 +69,12 @@
   color: var(--text-low);
 }
 
+.noMatches {
+  padding: 12px var(--sp-4);
+  font: 400 12px/1.5 var(--font-mono);
+  color: var(--text-low);
+}
+
 .option {
   display: flex;
   align-items: baseline;
