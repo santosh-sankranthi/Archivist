@@ -3,7 +3,7 @@
 Re-shot **2026-10-17 ~05:35Z** in one full pass after the **Ownership**
 view landed (the runway's who-knows-what ledger; the rail gained
 "Ownership", so every rail-visible still was re-taken for consistency —
-the pass wrote all 20 stills). Stills run against the live server
+the pass wrote all 23 stills). Stills run against the live server
 `:8787`; ask scenes (04–05) against the scripted capture server `:8789`
 (restarted beforehand for a fresh scenario run, stopped after) — the real
 loop, tools and graph, only the model's next-move choices are canned (the
