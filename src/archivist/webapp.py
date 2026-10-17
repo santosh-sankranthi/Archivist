@@ -23,6 +23,7 @@ Endpoints:
     GET  /api/graph/symbol     call neighbourhood (callers + callees, ≤3 hops)
     GET  /api/graph/path       shortest directed call path between two symbols
     GET  /api/graph/memory     memory timeline: episodes + bi-temporal facts
+    GET  /api/graph/crew       crew runs: phase spine + handoff notes
                                (as_of/history views)
     POST /api/graph/induced    induced subgraph of an Ask step's evidence refs
     POST /api/cypher           read-only escape hatch, projected
@@ -39,6 +40,7 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from itertools import pairwise
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -71,6 +73,14 @@ MAX_EPISODE_ANSWER = 400  # chars kept per episode answer in the timeline
 _EPISODE_CORE_KEYS = frozenset(
     {"id", "kind", "source", "ts", "created_at", "question", "answer", "role", "run"}
 )
+# /api/graph/crew (M4R P1): crew runs — phase spine + handoff notes. Same
+# honesty rule: every cap is reported in notes, and a run that never reached
+# its verifier is marked interrupted — never implied complete.
+MAX_CREW_RUNS = 20
+MAX_CREW_ANSWER = 600  # chars kept per phase answer
+MAX_CREW_INPUT = 1000  # chars kept per phase input (question prop)
+#: Known crew phase order; unknown roles sort after these, by timestamp.
+CREW_ROLE_ORDER = ("planner", "investigator", "verifier")
 # /api/graph/induced (M4R step 3): per-step evidence ref caps, reported in
 # notes when trimmed — the same honesty rule as every other projection.
 MAX_INDUCED_STEPS = 12
@@ -352,6 +362,8 @@ class WebApp:
                     return self._json(200, self._graph_activity())
                 if path == "/api/graph/memory":
                     return self._json(200, self._graph_memory(query))
+                if path == "/api/graph/crew":
+                    return self._json(200, self._graph_crew(query))
                 if path == "/api/graph/find":
                     return self._json(200, self._graph_find(query))
                 if path == "/api/graph/file":
@@ -799,6 +811,175 @@ class WebApp:
             "episodes": episodes_out,
             "facts": facts_out,
             "chain_facts": chain_facts,
+            "notes": notes,
+        }
+
+    def _graph_crew(self, query: dict) -> dict:
+        """Crew runs (Console v2 P1): a phase spine per run + handoff notes.
+
+        One row per phase episode (``role`` + ``run`` props), grouped into
+        runs newest-first. The spine is ordered by the known crew order
+        (planner → investigator → verifier, timestamp tie-broken), so a run
+        reads as the sequence it was. Handoff notes are queried back from
+        ``(:Episode)-[:HANDOFF]->(:Episode)`` edges — the crew's coordination
+        record is graph state, not a log file.
+
+        Honesty rules: runs beyond the cap, truncated inputs/answers, phase
+        episodes without a run id, and runs whose spine is missing expected
+        handoff edges (degraded bookkeeping) are all reported in ``notes``;
+        a run that never reached its verifier is ``interrupted``, never
+        implied complete.
+        """
+        rows = scalar_rows(self._ro("""
+                MATCH (e:Episode)
+                WHERE e.role IS NOT NULL
+                RETURN e.run AS run, e.id AS id, e.role AS role,
+                       coalesce(e.ts, e.created_at) AS ts,
+                       e.question AS question, e.answer AS answer,
+                       e.duration_ms AS duration_ms, e.steps AS steps,
+                       e.queries AS queries, e.llm_calls AS llm_calls,
+                       e.partial AS partial, e.error AS error
+                ORDER BY coalesce(e.ts, e.created_at) DESC, e.id
+                """))
+        handoff_rows = scalar_rows(self._ro("""
+                MATCH (a:Episode)-[h:HANDOFF]->(b:Episode)
+                WHERE a.run IS NOT NULL AND a.run = b.run
+                  AND a.role IS NOT NULL AND b.role IS NOT NULL
+                RETURN a.run AS run, a.role AS from_role, b.role AS to_role,
+                       h.note AS note, h.created_at AS ts
+                """))
+
+        by_run: dict[str, list[dict]] = {}
+        skipped = 0
+        for row in rows:
+            if row.get("run"):
+                by_run.setdefault(str(row["run"]), []).append(row)
+            else:
+                skipped += 1
+        run_handoffs: dict[str, list[dict]] = {}
+        for h in handoff_rows:
+            run_handoffs.setdefault(str(h["run"]), []).append(h)
+
+        def role_index(role: object) -> int:
+            try:
+                return CREW_ROLE_ORDER.index(str(role))
+            except ValueError:
+                return len(CREW_ROLE_ORDER)
+
+        notes: list[str] = []
+        truncated_inputs = truncated_answers = 0
+        runs_out: list[dict] = []
+        for run_id, phases in by_run.items():
+            phases.sort(
+                key=lambda p: (p["ts"] or 0, role_index(p["role"]), str(p["id"]))
+            )
+            phases_out: list[dict] = []
+            for p in phases:
+                question, answer = p["question"], p["answer"]
+                cut_in = isinstance(question, str) and len(question) > MAX_CREW_INPUT
+                if cut_in:
+                    question = question[: MAX_CREW_INPUT - 1] + "…"
+                    truncated_inputs += 1
+                cut_ans = isinstance(answer, str) and len(answer) > MAX_CREW_ANSWER
+                if cut_ans:
+                    answer = answer[: MAX_CREW_ANSWER - 1] + "…"
+                    truncated_answers += 1
+                phases_out.append(
+                    {
+                        "id": p["id"],
+                        "role": p["role"],
+                        "ts": p["ts"],
+                        "question": question,
+                        "input_truncated": cut_in,
+                        "answer": answer,
+                        "answer_truncated": cut_ans,
+                        "duration_ms": p["duration_ms"],
+                        "steps": p["steps"],
+                        "queries": p["queries"],
+                        "llm_calls": p["llm_calls"],
+                        "partial": p["partial"],
+                        "error": p["error"],
+                    }
+                )
+
+            roles_present = {str(p["role"]) for p in phases_out}
+            has_error = any(p["error"] for p in phases_out)
+            if not set(CREW_ROLE_ORDER).issubset(roles_present) or has_error:
+                status = "interrupted"
+            elif any(p["partial"] for p in phases_out):
+                status = "partial"
+            else:
+                status = "complete"
+
+            handoffs_sorted = sorted(
+                run_handoffs.get(run_id, []),
+                key=lambda h: (
+                    h["ts"] or 0,
+                    role_index(h["from_role"]),
+                    role_index(h["to_role"]),
+                ),
+            )
+            expected_edges = sum(
+                1
+                for a_phase, b_phase in pairwise(phases_out)
+                if role_index(b_phase["role"]) == role_index(a_phase["role"]) + 1
+            )
+            if expected_edges > len(handoffs_sorted):
+                notes.append(
+                    f"{run_id}: {expected_edges} handoff edge(s) expected, "
+                    f"{len(handoffs_sorted)} found (bookkeeping may have degraded)"
+                )
+
+            anchor = next(
+                (p for p in phases_out if str(p["role"]) == "planner"),
+                phases_out[0] if phases_out else None,
+            )
+            stamps = [p["ts"] for p in phases_out if p["ts"] is not None]
+            runs_out.append(
+                {
+                    "run": run_id,
+                    "question": (anchor or {}).get("question"),
+                    "started_at": min(stamps, default=None),
+                    "ended_at": max(stamps, default=None),
+                    "status": status,
+                    "phases": phases_out,
+                    "handoffs": [
+                        {
+                            "from": h["from_role"],
+                            "to": h["to_role"],
+                            "note": h["note"],
+                            "ts": h["ts"],
+                        }
+                        for h in handoffs_sorted
+                    ],
+                }
+            )
+
+        runs_out.sort(key=lambda r: (r["ended_at"] or 0, r["run"]), reverse=True)
+        total_runs = len(runs_out)
+        if total_runs > MAX_CREW_RUNS:
+            notes.append(
+                f"runs capped at {MAX_CREW_RUNS} "
+                f"({total_runs - MAX_CREW_RUNS} not shown, newest first)"
+            )
+            runs_out = runs_out[:MAX_CREW_RUNS]
+        if skipped:
+            notes.append(f"{skipped} phase episode(s) without a run id skipped")
+        if truncated_inputs:
+            notes.append(f"{truncated_inputs} phase input(s) truncated for display")
+        if truncated_answers:
+            notes.append(f"{truncated_answers} phase answer(s) truncated for display")
+        if not total_runs:
+            notes.append("no crew runs recorded yet")
+
+        return {
+            "graph": self.graph,
+            "counts": {
+                "runs": total_runs,
+                "phases": len(rows) - skipped,
+                "handoffs": len(handoff_rows),
+            },
+            "runs": runs_out,
             "notes": notes,
         }
 

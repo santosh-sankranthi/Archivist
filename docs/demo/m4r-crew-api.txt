@@ -1,0 +1,32 @@
+# /api/graph/crew — live check (M4R P1, server side)
+# 2026-10-17T00:05Z · repo:flask · archivist-console unit :8787 · on top of 8087585
+
+$ curl -s http://127.0.0.1:8787/api/graph/crew   # all crew runs, newest first
+  counts: runs=1 · phases=3 · handoffs=2 · notes: none
+  run demo:crew:run-1: status=complete · 1792108554 -> 1792108554
+    question: "What should we know before changing flask.helpers.url_for — who calls it, and who should review the change?"
+    spine: planner -> investigator -> verifier (3 phases, all partial=false, no errors)
+    planner     steps=1 queries=3 llm_calls=2 duration_ms=72   (plan text, see below)
+    investigator steps=2 queries=4 llm_calls=3 duration_ms=6
+    verifier     steps=2 queries=4 llm_calls=3 duration_ms=5
+    handoffs (spine order): planner -> investigator · investigator -> verifier
+      note[0]: "Objective: assess the blast radius of changing flask.helpers.url_for and the review routing for src/flask/helpers.py. Steps: 1. callers('url_for', depth 2) — impact, weak edges excluded. 2. owners('src/flask/helpers.py') — who has commit a…"
+      note[1]: "[scripted closing — a real model writes this from the results above: url_for fans in from 40 weak-free callers within 2 hops; primary review candidate is David Lord (58 commits on src/flask/helpers.py).]"
+
+# direct graph cross-check (docker exec falkordb redis-cli):
+$ MATCH (e:Episode) WHERE e.role IS NOT NULL RETURN count(e)   -> 3   (matches phases count)
+$ MATCH (:Episode)-[h:HANDOFF]->(:Episode) RETURN count(h)     -> 2   (matches handoffs count)
+
+# public tunnel edge:
+$ curl -s -o /dev/null -w '%{http_code}' https://computer-prevent-reconstruction-belkin.trycloudflare.com/api/graph/crew
+  200
+
+# semantics checked here:
+#  - status: complete only when the full planner→investigator→verifier spine is present
+#    with no phase errors; a missing verifier reads "interrupted", never "complete".
+#  - truncation flags + notes fire beyond 600 chars (answer) / 1000 chars (input);
+#    covered by test_crew_truncates_long_text_and_reports.
+#  - a phase that never reached its verifier is surfaced; a spine missing expected
+#    handoff edges is called out in notes (degraded bookkeeping, not silence).
+
+# suite: pytest 112/112 · ruff + black clean · test_webapp.py 40/40 (3 new for this endpoint)

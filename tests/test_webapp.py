@@ -796,3 +796,143 @@ def test_memory_empty_graph_is_honest(web_server: str):
     assert data["episodes"] == [] and data["facts"] == []
     assert data["counts"]["episodes"] == 0 and data["counts"]["facts"] == 0
     assert any("no memory recorded yet" in n for n in data["notes"])
+
+
+# -- /api/graph/crew (M4R P1: crew runs) -------------------------------------
+
+
+def _seed_crew(host: str, port: int, graph: str) -> None:
+    """One complete 3-phase run with handoffs; one interrupted planner-only."""
+    mem = Memory(graph=graph, host=host, port=port)
+    try:
+        run = "crew:test:1"
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id=f"{run}:planner",
+            ts=1000,
+            question="who calls foo?",
+            role="planner",
+            run=run,
+        )
+        mem.record_episode(
+            id=f"{run}:planner",
+            answer="plan text",
+            partial=False,
+            steps=1,
+            queries=1,
+            llm_calls=2,
+            duration_ms=10,
+        )
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id=f"{run}:investigator",
+            ts=1001,
+            question="phase input",
+            role="investigator",
+            run=run,
+        )
+        mem.record_episode(
+            id=f"{run}:investigator",
+            answer="investigation text",
+            partial=False,
+            steps=2,
+            queries=3,
+            llm_calls=3,
+            duration_ms=20,
+        )
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id=f"{run}:verifier",
+            ts=1002,
+            question="phase input",
+            role="verifier",
+            run=run,
+        )
+        mem.record_episode(
+            id=f"{run}:verifier",
+            answer="verdict text",
+            partial=False,
+            steps=2,
+            queries=4,
+            llm_calls=3,
+            duration_ms=30,
+        )
+        assert mem.link_handoff(f"{run}:planner", f"{run}:investigator", note="go")
+        assert mem.link_handoff(f"{run}:investigator", f"{run}:verifier", note="verify")
+        # A second run that stopped after planning (crew aborts on failure).
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id="crew:test:2:planner",
+            ts=2000,
+            question="second question?",
+            role="planner",
+            run="crew:test:2",
+        )
+    finally:
+        mem.close()
+
+
+def test_crew_runs_report_spine_and_handoffs(
+    web_server: str, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    _seed_crew(host, port, temp_graph)
+    status, data = get_json(web_server + "/api/graph/crew")
+    assert status == 200
+    assert data["counts"] == {"runs": 2, "phases": 4, "handoffs": 2}
+    # Newest run first.
+    assert [r["run"] for r in data["runs"]] == ["crew:test:2", "crew:test:1"]
+    by_run = {r["run"]: r for r in data["runs"]}
+    first = by_run["crew:test:1"]
+    assert first["status"] == "complete"
+    assert [p["role"] for p in first["phases"]] == [
+        "planner",
+        "investigator",
+        "verifier",
+    ]
+    assert first["question"] == "who calls foo?"
+    assert first["started_at"] == 1000 and first["ended_at"] == 1002
+    assert first["phases"][2]["answer"] == "verdict text"
+    assert first["phases"][1]["queries"] == 3
+    assert [h["to"] for h in first["handoffs"]] == ["investigator", "verifier"]
+    assert first["handoffs"][0]["note"] == "go"
+    second = by_run["crew:test:2"]
+    assert second["status"] == "interrupted"
+    assert [p["role"] for p in second["phases"]] == ["planner"]
+
+
+def test_crew_truncates_long_text_and_reports(
+    web_server: str, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    mem = Memory(graph=temp_graph, host=host, port=port)
+    try:
+        mem.record_episode(
+            kind="agent-session",
+            source="pytest",
+            id="r:planner",
+            ts=1000,
+            question="q",
+            role="planner",
+            run="r",
+        )
+        mem.record_episode(id="r:planner", answer="x" * 900)
+    finally:
+        mem.close()
+    status, data = get_json(web_server + "/api/graph/crew")
+    assert status == 200
+    phase = data["runs"][0]["phases"][0]
+    assert phase["answer_truncated"] is True
+    assert len(phase["answer"]) == 600  # MAX_CREW_ANSWER
+    assert any("truncated" in n and "answer" in n for n in data["notes"])
+
+
+def test_crew_empty_graph_is_honest(web_server: str):
+    status, data = get_json(web_server + "/api/graph/crew")
+    assert status == 200
+    assert data["runs"] == [] and data["counts"]["runs"] == 0
+    assert any("no crew runs recorded yet" in n for n in data["notes"])
