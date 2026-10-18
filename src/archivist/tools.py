@@ -35,6 +35,16 @@ MAX_LIMIT = 100
 
 SymbolId = tuple[str, str]  # (file, qualname) — the graph's symbol identity
 
+# Generic English words that would otherwise swamp keyword doc search.
+_DOC_STOPWORDS = frozenset(
+    {
+        "and", "about", "can", "does", "for", "from", "get", "here", "how",
+        "into", "its", "make", "need", "see", "set", "that", "the", "their",
+        "them", "there", "they", "this", "use", "using", "want", "what",
+        "when", "where", "which", "why", "with", "you", "your",
+    }
+)
+
 
 def _clamp_depth(depth: int) -> int:
     try:
@@ -656,6 +666,84 @@ class RepoGraph:
             )
         status = "ok" if rows else "not_found"
         return self._envelope("recall", status, params, rows, notes, since)
+
+    def search_docs(self, query: str, limit: int = 8) -> dict:
+        """Search the ingested documentation (``DocPage`` nodes) by topic.
+
+        Tries the query as a phrase first; if nothing matches, the most
+        distinctive words are searched individually. Returns sections with
+        their public ``docs.falkordb.com`` URLs, ready to cite.
+        """
+        since = self._mark()
+        limit = min(_clamp_limit(limit), 20)
+        query = (query or "").strip()
+        if not query:
+            return self._envelope(
+                "search_docs", "bad_request", {}, [], ["empty query"], since
+            )
+        rows = self._q(
+            """
+            MATCH (d:DocPage)
+            WHERE toLower(d.title) CONTAINS toLower($q)
+               OR toLower(d.section) CONTAINS toLower($q)
+               OR toLower(d.text) CONTAINS toLower($q)
+            RETURN d.url AS url, d.title AS title, d.section AS section,
+                   substring(d.text, 0, 600) AS excerpt
+            ORDER BY CASE WHEN toLower(d.title) CONTAINS toLower($q) THEN 0
+                          WHEN toLower(d.section) CONTAINS toLower($q) THEN 1
+                          ELSE 2 END
+            LIMIT $limit
+            """,
+            {"q": query, "limit": limit},
+        )
+        notes: list[str] = []
+        if rows:
+            notes = ["phrase match"]
+        else:
+            cleaned = query.translate(str.maketrans("", "", ".,:;?!()[]{}'\"*"))
+            words = [
+                word
+                for word in cleaned.split()
+                if len(word) > 2 and word.lower() not in _DOC_STOPWORDS
+            ][:3]
+            if words:
+                where = " OR ".join(
+                    f"toLower(d.text) CONTAINS toLower($w{i})"
+                    for i in range(len(words))
+                )
+                params: dict = {f"w{i}": word for i, word in enumerate(words)}
+                params["limit"] = limit
+                rows = self._q(
+                    f"""
+                    MATCH (d:DocPage)
+                    WHERE {where}
+                    RETURN d.url AS url, d.title AS title,
+                           d.section AS section,
+                           substring(d.text, 0, 600) AS excerpt
+                    LIMIT $limit
+                    """,
+                    params,
+                )
+                if rows:
+                    notes = [f"keyword match: {', '.join(words)}"]
+        if rows:
+            status = "ok"
+        else:
+            status = "not_found"
+            notes = [
+                (
+                    "no documentation matches — say the docs likely do not "
+                    "cover this instead of guessing"
+                )
+            ]
+        return self._envelope(
+            "search_docs",
+            status,
+            {"query": query, "limit": limit},
+            rows,
+            notes,
+            since,
+        )
 
     def query(self, cypher: str, params: dict | None = None, limit: int = 100) -> dict:
         """Run a read-only Cypher escape hatch (for demos / ad-hoc inspection).

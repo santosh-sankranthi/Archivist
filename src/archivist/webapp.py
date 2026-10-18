@@ -239,6 +239,7 @@ class RequestContext:
     headers: dict = field(default_factory=dict)
     client_ip: str = "unknown"
     secure: bool = False
+    raw_body: bytes = b""
 
 
 # One graph override and one response-header bag per request thread. The
@@ -886,6 +887,8 @@ class WebApp:
                 if path == "/api/me":
                     return self._json(200, self._me(ctx))
             elif method == "POST":
+                if path == "/github/webhook":
+                    return self._github_webhook(ctx)
                 if path == "/api/auth/signup":
                     return self._json(200, self._signup(body, ctx))
                 if path == "/api/auth/login":
@@ -3138,6 +3141,19 @@ class WebApp:
             graph=self.graph,
         )
 
+    def _github_webhook(self, ctx: RequestContext) -> tuple[int, str, bytes]:
+        """Additive route: verify + enqueue one GitHub delivery, ack fast.
+
+        The adapter lives in ``archivist.gh``; this method only hands over
+        the raw body (HMAC) and headers. GitHub times out at 10 s, so the
+        agent itself runs on the adapter's worker pool.
+        """
+        from .gh.webhook import handle_webhook
+
+        headers = dict(ctx.headers) if ctx.headers else {}
+        status, payload = handle_webhook(headers, ctx.raw_body)
+        return self._json(status, payload)
+
     def _run_ask(
         self,
         setup: _AskSetup,
@@ -3510,6 +3526,7 @@ def make_server(
                         self.wfile.write(payload)
                     return
                 body: dict = {}
+                raw = b""
                 if method == "POST":
                     length = int(self.headers.get("Content-Length") or 0)
                     if length < 0:
@@ -3535,6 +3552,7 @@ def make_server(
                     client_ip=str(self.client_address[0]),
                     secure=(self.headers.get("X-Forwarded-Proto") or "").lower()
                     == "https",
+                    raw_body=raw,
                 )
                 result: tuple[int, str, bytes] | StreamResponse = app.dispatch(
                     method, split.path, parse_qs(split.query), body, ctx=ctx

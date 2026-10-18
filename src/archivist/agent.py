@@ -45,7 +45,9 @@ How to work:
 - `callers` / `callees` walk call chains (impact analysis / dependencies);
   `owners` and `file_history` cover reviewer routing and churn;
   `search_commits` finds the "why" behind changes; `find_symbols` locates
-  definitions. `query` is a read-only Cypher escape hatch for anything else.
+  definitions; `search_docs` surfaces the ingested FalkorDB documentation
+  (Cypher reference, clients, configuration). `query` is a read-only
+  Cypher escape hatch for anything else.
 - Answer ONLY from tool results. Never invent names, counts, or SHAs. If the
   tools cannot answer, say what is missing instead of guessing.
 - Cite evidence inline: repo-relative paths (src/flask/app.py), qualnames,
@@ -262,6 +264,21 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
         ["type", "summary"],
+    ),
+    _fn(
+        "search_docs",
+        "Search the ingested FalkorDB documentation (Cypher reference, clients, configuration, guides) and get citable sections with their docs.falkordb.com URLs. Use for questions about how to use FalkorDB or its features.",
+        {
+            "query": {
+                "type": "string",
+                "description": "Topic or question, e.g. 'vector index', 'MERGE semantics', 'connection pooling'.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max sections to return (default 8, max 20).",
+            },
+        },
+        ["query"],
     ),
     _fn(
         "query",
