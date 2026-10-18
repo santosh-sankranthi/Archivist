@@ -18,6 +18,7 @@ import {
   saveLLMKey,
   type LLMKeySettings,
 } from "../lib/llmKeys";
+import { STARTERS } from "../lib/questions";
 import { useSession } from "../lib/session";
 import {
   mergeReplays,
@@ -29,6 +30,7 @@ import {
 } from "../lib/trace";
 import type { AskResponse, InducedResponse } from "../lib/types";
 import { GraphCanvas } from "./GraphCanvas";
+import { Orb } from "./Orb";
 import { TraceDetail } from "./TraceDetail";
 import { TraceRibbon } from "./TraceRibbon";
 import styles from "./AskRoom.module.css";
@@ -275,11 +277,27 @@ export function AskRoom({
                 </>
               ) : (
                 <>
+                  <div className={styles.introOrb}>
+                    <Orb size="lg" />
+                  </div>
                   <h1 className={styles.introTitle}>Ask the archive.</h1>
                   <p className={styles.introBody}>
                     One question, one traced path through the graph — every step keeps
                     its Cypher, its timing, and the subgraph it touched.
                   </p>
+                  <div className={styles.chips}>
+                    {STARTERS.map((starter) => (
+                      <button
+                        key={starter}
+                        type="button"
+                        className={styles.chip}
+                        disabled={busy}
+                        onClick={() => void run(starter)}
+                      >
+                        {starter}
+                      </button>
+                    ))}
+                  </div>
                 </>
               )}
             </div>
@@ -300,6 +318,7 @@ export function AskRoom({
 
             {turn.phase.kind === "running" ? (
               <div className={styles.running} aria-live="polite">
+                <Orb size="sm" thinking />
                 <span>Working the graph</span>
                 <span className={styles.pulse} aria-hidden="true">
                   <i />
@@ -423,8 +442,11 @@ export function AskRoom({
 
             {turn.phase.kind === "done" ? (
               <>
-                <div className={styles.answer}>
-                  <p className={styles.answerText}>{turn.phase.data.answer.text}</p>
+                <div className={styles.buddyAnswer}>
+                  <Orb size="sm" />
+                  <div className={styles.answer}>
+                    <p className={styles.answerText}>{turn.phase.data.answer.text}</p>
+                  </div>
                 </div>
                 <TraceRibbon
                   steps={turn.phase.data.answer.steps}

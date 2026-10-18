@@ -1,8 +1,8 @@
 /** The pinned starter questions — one source for Home and the ⌘K palette,
- *  so the demo script and the UI can't drift apart. These are the questions
- *  the M2 demo pack rehearsed against the real `repo:flask` graph. */
+ *  so the demo script and the UI can't drift apart. They rehearse against
+ *  the live `repo:falkordb-py` graph. */
 export const STARTERS = [
-  "What breaks if flask.helpers.url_for changes?",
-  "Who should review a change to src/flask/app.py?",
-  "Shortest call path from Flask.wsgi_app to Flask.finalize_request?",
+  "How do I create a vector index in FalkorDB?",
+  "Who calls Graph.query and how deep does the call chain go?",
+  "What changed recently in falkordb/graph.py?",
 ] as const;

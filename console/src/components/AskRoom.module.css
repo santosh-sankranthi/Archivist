@@ -567,3 +567,60 @@
     min-width: 320px;
   }
 }
+
+/* ---- Buddy character: the orb marks every answer; starter chips drive the
+   demo in one click. The gradient lives only here — the rest of the system
+   stays Ink & Signal. */
+.introOrb {
+  margin-bottom: var(--sp-5);
+  animation: rise var(--t-slow) var(--ease) both;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+  max-width: 520px;
+}
+
+.chip {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-mid);
+  background: rgba(122, 162, 247, 0.06);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 7px 13px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--text-hi);
+  border-color: var(--hairline-strong);
+  background: rgba(122, 162, 247, 0.1);
+  transform: translateY(-1px);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.buddyAnswer {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.buddyAnswer > *:last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
