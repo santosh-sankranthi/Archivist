@@ -7,17 +7,19 @@
 import type { CSSProperties } from "react";
 
 import { stepFact, toolLabel } from "../lib/trace";
-import type { AskStep } from "../lib/types";
+import type { ActionItem, AskStep } from "../lib/types";
 import styles from "./TraceRibbon.module.css";
 
 interface Props {
   steps: AskStep[];
   active: number | null;
   onPick: (index: number) => void;
+  actions?: ActionItem[];
 }
 
-export function TraceRibbon({ steps, active, onPick }: Props) {
-  if (steps.length === 0) return null;
+export function TraceRibbon({ steps, active, onPick, actions }: Props) {
+  const actionCount = actions?.length ?? 0;
+  if (steps.length === 0 && actionCount === 0) return null;
   return (
     <ol className={styles.ribbon} aria-label="Answer trace">
       {steps.map((step, index) => {
@@ -47,6 +49,22 @@ export function TraceRibbon({ steps, active, onPick }: Props) {
           </li>
         );
       })}
+      {actionCount > 0 ? (
+        <li
+          className={styles.item}
+          style={{ "--i": Math.min(steps.length, 8) } as CSSProperties}
+        >
+          {steps.length > 0 ? (
+            <span className={styles.link} aria-hidden="true" />
+          ) : null}
+          <div className={styles.actionChip} data-testid="trace-action">
+            <span className={styles.tool}>act</span>
+            <span className={styles.fact}>
+              {actionCount} proposed action{actionCount === 1 ? "" : "s"}
+            </span>
+          </div>
+        </li>
+      ) : null}
     </ol>
   );
 }

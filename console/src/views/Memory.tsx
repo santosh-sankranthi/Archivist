@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 
-import { useApi } from "../lib/api";
+import { postJSON, useApi } from "../lib/api";
 import { clampText, formatInt, relTime, shortSha, stamp } from "../lib/format";
 import { useDebounced } from "../lib/hooks";
 import {
@@ -20,6 +20,7 @@ import {
 import { EASE_OUT, prefersReducedMotion } from "../lib/motion";
 import { href, navigate, useLocation } from "../lib/router";
 import type {
+  ActionItem,
   ActionsResponse,
   MemoryChainFact,
   MemoryEpisode,
@@ -97,7 +98,7 @@ export function Memory() {
         </section>
       ) : null}
 
-      <ActionsSection data={actions.data} error={actions.error} />
+      <ActionsSection data={actions.data} error={actions.error} onReload={actions.reload} />
 
       <section className={styles.scrubber} aria-label="Timeline scrubber">
         <div className={styles.scrubberHead}>
@@ -270,9 +271,11 @@ function Stat({ value, label }: { value: number; label: string }) {
 function ActionsSection({
   data,
   error,
+  onReload,
 }: {
   data: ActionsResponse | null;
   error: { message: string } | null;
+  onReload: () => void;
 }) {
   if (error) {
     return (
@@ -312,54 +315,7 @@ function ActionsSection({
       ) : (
         <div className={styles.actionList}>
           {items.map((action) => (
-            <div
-              key={action.id}
-              className={styles.action}
-              data-status={action.status}
-            >
-              <div className={styles.actionHead}>
-                <span className={`${styles.actionType} ${styles[`type_${action.type}`]}`}>
-                  {action.type ?? "action"}
-                </span>
-                <span className={styles.actionStatus}>{action.status}</span>
-                <p className={styles.actionSummary}>{action.summary}</p>
-              </div>
-              <div className={styles.actionMeta}>
-                {action.refs.map((ref, i) =>
-                  ref.kind === "File" && ref.label ? (
-                    <button
-                      key={`${ref.kind}:${ref.label}:${i}`}
-                      type="button"
-                      className={`${styles.ref} ${styles.refLink}`}
-                      title={`open ${ref.label} in the Explorer`}
-                      onClick={() =>
-                        navigate(href("/explorer", { path: ref.label! }))
-                      }
-                    >
-                      {ref.label}
-                    </button>
-                  ) : (
-                    <span key={`${ref.kind}:${ref.label}:${i}`} className={styles.ref}>
-                      {ref.label ?? ref.kind}
-                    </span>
-                  ),
-                )}
-                {action.episode_id ? (
-                  <button
-                    type="button"
-                    className={styles.epLink}
-                    onClick={() => scrollToEpisode(action.episode_id!)}
-                  >
-                    episode ↗
-                  </button>
-                ) : null}
-                {action.supersedes.length > 0 ? (
-                  <span className={styles.supersedes} title={action.supersedes.join(", ")}>
-                    SUPERSEDES {shortSha(action.supersedes[0])}
-                  </span>
-                ) : null}
-              </div>
-            </div>
+            <ActionRow key={action.id} action={action} onReload={onReload} />
           ))}
         </div>
       )}
@@ -373,6 +329,96 @@ function ActionsSection({
         </ul>
       ) : null}
     </section>
+  );
+}
+
+function ActionRow({
+  action,
+  onReload,
+}: {
+  action: ActionItem;
+  onReload: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function complete(status: "done" | "superseded"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await postJSON(`/api/actions/${action.id}/complete`, { status });
+      onReload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.action} data-status={action.status}>
+      <div className={styles.actionHead}>
+        <span className={`${styles.actionType} ${styles[`type_${action.type}`]}`}>
+          {action.type ?? "action"}
+        </span>
+        <span className={styles.actionStatus}>{action.status}</span>
+        <p className={styles.actionSummary}>{action.summary}</p>
+      </div>
+      <div className={styles.actionMeta}>
+        {action.refs.map((ref, i) =>
+          ref.kind === "File" && ref.label ? (
+            <button
+              key={`${ref.kind}:${ref.label}:${i}`}
+              type="button"
+              className={`${styles.ref} ${styles.refLink}`}
+              title={`open ${ref.label} in the Explorer`}
+              onClick={() => navigate(href("/explorer", { path: ref.label! }))}
+            >
+              {ref.label}
+            </button>
+          ) : (
+            <span key={`${ref.kind}:${ref.label}:${i}`} className={styles.ref}>
+              {ref.label ?? ref.kind}
+            </span>
+          ),
+        )}
+        {action.episode_id ? (
+          <button
+            type="button"
+            className={styles.epLink}
+            onClick={() => scrollToEpisode(action.episode_id!)}
+          >
+            episode ↗
+          </button>
+        ) : null}
+        {action.supersedes.length > 0 ? (
+          <span className={styles.supersedes} title={action.supersedes.join(", ")}>
+            SUPERSEDES {shortSha(action.supersedes[0])}
+          </span>
+        ) : null}
+        {action.status === "proposed" ? (
+          <span className={styles.actionControls}>
+            <button
+              type="button"
+              className={styles.actionBtn}
+              disabled={busy}
+              onClick={() => void complete("done")}
+            >
+              {busy ? "…" : "Mark done"}
+            </button>
+            <button
+              type="button"
+              className={styles.actionBtn}
+              disabled={busy}
+              onClick={() => void complete("superseded")}
+            >
+              Superseded
+            </button>
+          </span>
+        ) : null}
+        {error ? <span className={styles.actionError}>{error}</span> : null}
+      </div>
+    </div>
   );
 }
 

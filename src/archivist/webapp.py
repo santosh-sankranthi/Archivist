@@ -1390,12 +1390,6 @@ class WebApp:
         self._auth_guard(ctx)
         if self._request_user is None:
             raise ApiError(401, "sign in to complete actions", code="unauthorized")
-        if self.graph == self._demo_graph:
-            raise ApiError(
-                403,
-                "actions live in your own repository — the demo graph is shared",
-                code="shared_graph",
-            )
         action_id = path[len("/api/actions/") : -len("/complete")].strip()
         if not action_id:
             raise ApiError(400, "action id is required", code="bad_request")

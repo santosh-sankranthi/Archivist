@@ -98,6 +98,19 @@
   color: var(--text-low);
 }
 
+.actionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--amber);
+  border-radius: var(--r-1);
+  background: var(--amber-tint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--amber);
+}
+
 @keyframes chipIn {
   from {
     opacity: 0;
