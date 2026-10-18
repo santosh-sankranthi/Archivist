@@ -96,6 +96,16 @@
   border-color: var(--hairline);
 }
 
+.rowActive {
+  background: var(--ink-850);
+  border-color: var(--hairline);
+  box-shadow: inset 2px 0 0 var(--amber);
+}
+
+.rowActive .rowGo {
+  color: var(--amber);
+}
+
 .row:focus-visible,
 .newBtn:focus-visible {
   outline: 1px solid var(--amber);
@@ -134,6 +144,17 @@
   color: var(--text-low);
 }
 
+.rowGo {
+  margin-left: auto;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-low);
+}
+
+.row:hover .rowGo {
+  color: var(--amber);
+}
+
 .rowText {
   font-family: var(--font-ui);
   font-size: 12.5px;
@@ -157,23 +178,34 @@
   border-top: 1px solid var(--hairline);
   padding: var(--sp-3) var(--sp-4);
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  font-family: var(--font-mono);
-  font-size: 11px;
 }
 
+/* Real buttons, not footnotes — the rail's way out of the workspace. */
 .foot a {
+  flex: 1;
+  text-align: center;
+  padding: 7px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-mid);
   text-decoration: none;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  background: var(--ink-850);
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 .foot a:hover {
   color: var(--text-hi);
-}
-
-.footSep {
-  color: var(--text-low);
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--hairline));
+  background: var(--ink-800);
 }
 
 @media (max-width: 900px) {

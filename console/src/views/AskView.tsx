@@ -1,8 +1,10 @@
 /** Full-page Ask — the workspace: sessions rail (left), conversation and
  *  trace canvas (right). Deep links (?q=…) run once on arrival; ?new=<ts>
- *  remounts the stage clean (the rail's "new question" signal). */
+ *  remounts the stage clean (the rail's "new question" signal); ?s=<id>
+ *  opens one stored session read-only (the rail's history). */
 
 import { AskRoom } from "../components/AskRoom";
+import { SessionPeek } from "../components/SessionPeek";
 import { SessionRail } from "../components/SessionRail";
 import styles from "./AskView.module.css";
 
@@ -12,6 +14,7 @@ interface Props {
 
 export function AskView({ query }: Props) {
   const question = query.get("q");
+  const session = query.get("s");
   // `run=0` is the landing CTA's "prefill but don't auto-spend" signal
   // (audit #6): it deep-links with the question preloaded, and the visitor
   // decides when to press Ask. Every other `?q=` source (starters, palette,
@@ -23,19 +26,23 @@ export function AskView({ query }: Props) {
   const explain = query.get("explain") === "1";
   // Remount key: a distinct question or an explicit "new" reset gets a fresh
   // stage; plain navigations to /ask keep the live conversation intact.
-  const roomKey = `${query.get("new") ?? ""}|${question ?? ""}`;
+  const roomKey = `${query.get("new") ?? ""}|${session ?? ""}|${question ?? ""}`;
 
   return (
     <div className={styles.workspace}>
       <SessionRail />
       <div className={styles.wrap}>
-        <AskRoom
-          key={roomKey}
-          variant="stage"
-          initialQuestion={question}
-          autoRun={autoRun}
-          explain={explain}
-        />
+        {session ? (
+          <SessionPeek key={session} episodeId={session} />
+        ) : (
+          <AskRoom
+            key={roomKey}
+            variant="stage"
+            initialQuestion={question}
+            autoRun={autoRun}
+            explain={explain}
+          />
+        )}
       </div>
     </div>
   );

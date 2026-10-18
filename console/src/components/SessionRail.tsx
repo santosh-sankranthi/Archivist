@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { useApi } from "../lib/api";
 import { clampText, relTime } from "../lib/format";
-import { href, navigate } from "../lib/router";
+import { href, navigate, useLocation } from "../lib/router";
 import type { MemoryEpisode, MemoryResponse } from "../lib/types";
 import styles from "./SessionRail.module.css";
 
@@ -25,11 +25,6 @@ function questionOf(episode: MemoryEpisode): string | null {
   return null;
 }
 
-function urlOf(episode: MemoryEpisode): string | null {
-  const url = episode.props.url;
-  return typeof url === "string" && url.startsWith("http") ? url : null;
-}
-
 function onNav(to: string) {
   return (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -40,6 +35,8 @@ function onNav(to: string) {
 
 export function SessionRail() {
   const memory = useApi<MemoryResponse>("/api/graph/memory", 60_000);
+  const { query } = useLocation();
+  const selected = query.get("s");
   // Reload identity changes with every fetch; route through a ref so the
   // listener below subscribes exactly once.
   const reloadRef = useRef(memory.reload);
@@ -80,7 +77,7 @@ export function SessionRail() {
       <div className={styles.listLabel}>SESSIONS</div>
       <div className={styles.list}>
         {episodes.map((episode) => (
-          <Row key={episode.id} episode={episode} />
+          <Row key={episode.id} episode={episode} active={selected === episode.id} />
         ))}
         {episodes.length === 0 ? (
           <p className={styles.empty}>
@@ -93,19 +90,14 @@ export function SessionRail() {
         ) : null}
       </div>
 
+      {/* Rail foot: real buttons, not footnote links. */}
       <div className={styles.foot}>
         <a href={href("/explorer")} onClick={onNav("/explorer")}>
           Explorer
         </a>
-        <span className={styles.footSep} aria-hidden="true">
-          ·
-        </span>
         <a href={href("/memory")} onClick={onNav("/memory")}>
           Memory
         </a>
-        <span className={styles.footSep} aria-hidden="true">
-          ·
-        </span>
         <a href={href("/")} onClick={onNav("/")}>
           Home
         </a>
@@ -114,58 +106,35 @@ export function SessionRail() {
   );
 }
 
-function Row({ episode }: { episode: MemoryEpisode }) {
+function Row({ episode, active }: { episode: MemoryEpisode; active: boolean }) {
   const label = KIND_LABEL[episode.kind] ?? episode.kind;
   const question = questionOf(episode);
-  const url = urlOf(episode);
   const badgeClass =
     episode.kind === "github-answer"
       ? styles.badgeGh
       : episode.kind === "slack-answer"
         ? styles.badgeSl
         : null;
-  const body = (
-    <>
+  return (
+    <button
+      type="button"
+      className={`${styles.row} ${active ? styles.rowActive : ""}`}
+      aria-current={active ? "true" : undefined}
+      title="Open this session"
+      onClick={() => navigate(href("/ask", { s: episode.id }))}
+    >
       <span className={styles.rowTop}>
         <span className={badgeClass ? `${styles.badge} ${badgeClass}` : styles.badge}>
           {label}
         </span>
         <span className={styles.rowTime}>{relTime(episode.ts)}</span>
+        <span className={styles.rowGo} aria-hidden="true">
+          ›
+        </span>
       </span>
       <span className={styles.rowText}>
         {clampText(question ?? episode.id, 120)}
       </span>
-    </>
-  );
-
-  if (episode.kind === "github-answer" && url) {
-    return (
-      <a
-        className={styles.row}
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        title="Open the thread on GitHub"
-      >
-        {body}
-      </a>
-    );
-  }
-  if (episode.kind === "agent-session" && question) {
-    return (
-      <button
-        type="button"
-        className={styles.row}
-        title="Re-open this question in the ask stage"
-        onClick={() => navigate(href("/ask", { q: question, run: "0" }))}
-      >
-        {body}
-      </button>
-    );
-  }
-  return (
-    <div className={styles.row} title="Answered on Slack">
-      {body}
-    </div>
+    </button>
   );
 }
