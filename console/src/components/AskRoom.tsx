@@ -10,7 +10,7 @@
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, postJSON } from "../lib/api";
+import { ApiError, postJSON, postSSE } from "../lib/api";
 import { formatInt } from "../lib/format";
 import {
   getLLMKey,
@@ -35,10 +35,94 @@ import { TraceDetail } from "./TraceDetail";
 import { TraceRibbon } from "./TraceRibbon";
 import styles from "./AskRoom.module.css";
 
+/** One row of the live feed while a run streams (web ask → SSE). */
+interface LiveStep {
+  /** Server step index; -1 for stashed pre-tool reasoning. */
+  i: number;
+  tool: string;
+  detail: string;
+  status: "running" | "ok" | "error";
+  meta: string;
+}
+
 type Phase =
-  | { kind: "running" }
+  | { kind: "running"; steps: LiveStep[]; thinking: string }
   | { kind: "done"; data: AskResponse }
   | { kind: "error"; error: ApiError };
+
+/** One-line preview of a tool call's arguments for the live feed. */
+function argsPreview(args: Record<string, unknown>): string {
+  const keys = ["query", "cypher", "path", "text", "question", "name", "pattern"];
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim().replace(/\s+/g, " ").slice(0, 140);
+    }
+  }
+  try {
+    return JSON.stringify(args).slice(0, 140);
+  } catch {
+    return "";
+  }
+}
+
+interface StreamHooks {
+  onStepStart: (i: number, tool: string, args: Record<string, unknown>) => void;
+  onStepResult: (i: number, patch: Partial<LiveStep>) => void;
+  onDelta: (text: string) => void;
+}
+
+/** POST /api/ask/stream (SSE): steps + answer deltas in real time, the full
+ *  Answer payload on `done`. Refusals (validation, quota, no key) stay
+ *  ordinary JSON errors and surface as ApiError — no re-spend on fallback. */
+async function streamAsk(
+  question: string,
+  remembered: boolean,
+  hooks: StreamHooks,
+): Promise<AskResponse> {
+  let answer: AskResponse | null = null;
+  let failure: string | null = null;
+  await postSSE(
+    "/api/ask/stream",
+    { question, max_steps: 6, remember: remembered },
+    llmHeadersFor(getLLMKey()),
+    (event, data) => {
+      if (event === "step_start") {
+        const i = typeof data.i === "number" ? data.i : -1;
+        const tool = typeof data.tool === "string" ? data.tool : "tool";
+        const args =
+          data.args && typeof data.args === "object"
+            ? (data.args as Record<string, unknown>)
+            : {};
+        hooks.onStepStart(i, tool, args);
+      } else if (event === "step_result") {
+        const i = typeof data.i === "number" ? data.i : -1;
+        const status: LiveStep["status"] = data.status === "error" ? "error" : "ok";
+        const bits: string[] = [];
+        if (typeof data.count === "number") {
+          bits.push(`${formatInt(data.count)} row${data.count === 1 ? "" : "s"}`);
+        }
+        if (typeof data.ms === "number") bits.push(`${formatInt(data.ms)}ms`);
+        const error = typeof data.error === "string" && data.error ? data.error : null;
+        const notes = Array.isArray(data.notes)
+          ? data.notes.filter((note): note is string => typeof note === "string")
+          : [];
+        if (error) bits.push(error.slice(0, 90));
+        else if (notes.length > 0) bits.push(notes[0].slice(0, 90));
+        hooks.onStepResult(i, { status, meta: bits.join(" · ") });
+      } else if (event === "answer_delta") {
+        if (typeof data.text === "string") hooks.onDelta(data.text);
+      } else if (event === "done") {
+        answer = data as unknown as AskResponse;
+      } else if (event === "error") {
+        failure = typeof data.message === "string" ? data.message : "the run failed";
+      }
+    },
+  );
+  if (answer) return answer;
+  if (failure) throw new ApiError(500, failure);
+  throw new ApiError(0, "the stream ended without an answer");
+}
 
 interface Turn {
   id: number;
@@ -117,7 +201,8 @@ export function AskRoom({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "nearest" });
-  }, [turns.length, last?.phase.kind]);
+    // `phase` (not just its kind) so a streaming run keeps the caret in view.
+  }, [turns.length, last?.phase]);
 
   useEffect(() => {
     if (!autoRun || initialQuestion === null) return;
@@ -141,39 +226,122 @@ export function AskRoom({
         id,
         question,
         remembered,
-        phase: { kind: "running" },
+        phase: { kind: "running", steps: [], thinking: "" },
         replay: null,
         replayError: null,
         filed: { kind: "idle" },
       },
     ]);
     setDraft("");
-    let data: AskResponse;
-    try {
-      data = await postJSON<AskResponse>(
-        "/api/ask",
-        {
-          question,
-          max_steps: 6,
-          remember: remembered,
-        },
-        // Read the BYO key at call time (not from the render closure) so a
-        // save-then-retry in the refused-ask card always sends the fresh key.
-        llmHeadersFor(getLLMKey()),
+    // Live feed: mutated by stream events, flushed into the turn each time so
+    // the running card re-renders with every step and delta.
+    const live: { steps: LiveStep[]; thinking: string } = {
+      steps: [],
+      thinking: "",
+    };
+    const flushLive = (): void => {
+      setTurns((prev) =>
+        prev.map((turn) =>
+          turn.id === id && turn.phase.kind === "running"
+            ? {
+                ...turn,
+                phase: {
+                  kind: "running",
+                  steps: [...live.steps],
+                  thinking: live.thinking,
+                },
+              }
+            : turn,
+        ),
       );
+    };
+    let gotFrames = false;
+    let data: AskResponse | null = null;
+    try {
+      data = await streamAsk(question, remembered, {
+        onStepStart: (i, tool, args) => {
+          gotFrames = true;
+          if (live.thinking) {
+            // The model's pre-tool reasoning stays visible in the transcript.
+            live.steps.push({
+              i: -1,
+              tool: "thinking",
+              detail: live.thinking.replace(/\s+/g, " ").slice(0, 240),
+              status: "ok",
+              meta: "",
+            });
+            live.thinking = "";
+          }
+          live.steps.push({
+            i,
+            tool,
+            detail: argsPreview(args),
+            status: "running",
+            meta: "",
+          });
+          flushLive();
+        },
+        onStepResult: (i, patch) => {
+          gotFrames = true;
+          const step = live.steps.find(
+            (entry) => entry.i === i && entry.status === "running",
+          );
+          if (step) Object.assign(step, patch);
+          flushLive();
+        },
+        onDelta: (text) => {
+          gotFrames = true;
+          live.thinking += text;
+          flushLive();
+        },
+      });
     } catch (error) {
       const apiError =
         error instanceof ApiError ? error : new ApiError(0, String(error));
-      setTurns((prev) =>
-        prev.map((turn) =>
-          turn.id === id ? { ...turn, phase: { kind: "error", error: apiError } } : turn,
-        ),
-      );
-      return;
+      if (!gotFrames && apiError.status === 0) {
+        // The stream route is unavailable here (old server, buffering
+        // proxy): fall back to the classic JSON ask, unchanged.
+        try {
+          data = await postJSON<AskResponse>(
+            "/api/ask",
+            {
+              question,
+              max_steps: 6,
+              remember: remembered,
+            },
+            // Read the BYO key at call time (not from the render closure) so a
+            // save-then-retry in the refused-ask card always sends the fresh
+            // key.
+            llmHeadersFor(getLLMKey()),
+          );
+        } catch (fallbackError) {
+          const fallbackApi =
+            fallbackError instanceof ApiError
+              ? fallbackError
+              : new ApiError(0, String(fallbackError));
+          setTurns((prev) =>
+            prev.map((turn) =>
+              turn.id === id
+                ? { ...turn, phase: { kind: "error", error: fallbackApi } }
+                : turn,
+            ),
+          );
+          return;
+        }
+      } else {
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === id ? { ...turn, phase: { kind: "error", error: apiError } } : turn,
+          ),
+        );
+        return;
+      }
     }
+    if (!data) return;
+    const result = data;
     setTurns((prev) =>
       prev.map((turn) =>
-        turn.id === id ? { ...turn, phase: { kind: "done", data } } : turn,
+        turn.id === id ? { ...turn, phase: { kind: "done", data: result } } : turn,
       ),
     );
     // New episode landed — the sessions rail refetches instantly.
@@ -370,14 +538,49 @@ export function AskRoom({
             <h2 className={styles.question}>{turn.question}</h2>
 
             {turn.phase.kind === "running" ? (
-              <div className={styles.running} aria-live="polite">
-                <Orb size="sm" thinking />
-                <span>Working the graph</span>
-                <span className={styles.pulse} aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
+              <div className={styles.live} aria-live="polite">
+                <div className={styles.running}>
+                  <Orb size="sm" thinking />
+                  <span>
+                    {turn.phase.thinking ? "Composing the answer" : "Working the graph"}
+                  </span>
+                  <span className={styles.pulse} aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
+                {turn.phase.steps.length > 0 ? (
+                  <ol className={styles.liveSteps}>
+                    {turn.phase.steps.map((step, index) => (
+                      <li key={`${step.i}-${index}`} className={styles.liveStep}>
+                        <span
+                          className={
+                            step.status === "error"
+                              ? styles.liveFlagError
+                              : step.status === "running"
+                                ? styles.liveFlagRunning
+                                : styles.liveFlagOk
+                          }
+                          aria-hidden="true"
+                        />
+                        <span className={styles.liveTool}>{step.tool}</span>
+                        {step.detail ? (
+                          <span className={styles.liveDetail}>{step.detail}</span>
+                        ) : null}
+                        {step.meta ? (
+                          <span className={styles.liveMeta}>{step.meta}</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+                {turn.phase.thinking ? (
+                  <p className={styles.liveThink}>
+                    {turn.phase.thinking}
+                    <span className={styles.liveCaret} aria-hidden="true" />
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

@@ -119,3 +119,71 @@ export function useApi<T>(path: string | null, refreshMs?: number): ApiState<T> 
   const reload = () => setNonce((value) => value + 1);
   return { ...state, reload };
 }
+
+/** POST that reads a `text/event-stream` response, frame by frame.
+ *
+ *  Resolves when the stream ends; every `event:`/`data:` pair is handed to
+ *  `onFrame` (comment heartbeats are ignored). HTTP refusals stay ordinary
+ *  JSON errors and are raised as `ApiError`, so callers can tell a white
+ *  lie refusal from a stream that never opened. */
+export async function postSSE(
+  url: string,
+  body: unknown,
+  headers: Record<string, string>,
+  onFrame: (event: string, data: Record<string, unknown>) => void,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, "the console server is unreachable");
+  }
+  if (!res.ok) {
+    throw toError(res.status, await parse(res));
+  }
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.body || !contentType.includes("text/event-stream")) {
+    throw new ApiError(0, "the server did not open a stream");
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, "\n");
+    let cut = buffer.indexOf("\n\n");
+    while (cut !== -1) {
+      const frame = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+      }
+      if (dataLines.length > 0) {
+        let data: Record<string, unknown> = {};
+        try {
+          const parsed = JSON.parse(dataLines.join("\n"));
+          if (parsed && typeof parsed === "object") {
+            data = parsed as Record<string, unknown>;
+          }
+        } catch {
+          data = {};
+        }
+        onFrame(event, data);
+      }
+      cut = buffer.indexOf("\n\n");
+    }
+  }
+}

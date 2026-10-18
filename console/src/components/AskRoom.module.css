@@ -677,3 +677,110 @@
   font-style: italic;
   color: #d98a8a;
 }
+/* Live feed — the running phase streams steps + the answer as it forms. */
+
+.live {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.liveSteps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.liveStep {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--ink-900) 60%, transparent);
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.liveFlagOk,
+.liveFlagRunning,
+.liveFlagError {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.liveFlagOk {
+  background: var(--teal);
+}
+
+.liveFlagError {
+  background: var(--rose);
+}
+
+.liveFlagRunning {
+  background: var(--amber);
+  animation: liveBlink 1s ease-in-out infinite;
+}
+
+@keyframes liveBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.liveTool {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--amber);
+}
+
+.liveDetail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-mid);
+}
+
+.liveMeta {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-low);
+}
+
+.liveThink {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-mid);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.liveCaret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: var(--amber);
+  animation: liveBlink 0.9s steps(2, start) infinite;
+}
