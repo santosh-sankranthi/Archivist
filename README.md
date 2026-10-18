@@ -2,6 +2,8 @@
 
 **Graph Hacks 2026 submission (WeMakeDevs × FalkorDB) — work in progress.**
 
+**Live demo:** https://figure-them-trucks-concentrate.trycloudflare.com/console
+
 An engineering-intelligence agent with FalkorDB as its context layer: it turns
 a codebase + its git history into a living graph, answers multi-hop questions
 with traceable reasoning paths, takes actions, remembers across sessions, and
