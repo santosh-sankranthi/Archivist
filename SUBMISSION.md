@@ -21,7 +21,8 @@ something.
    and every answer stored as a memory episode. Mentions (`@archivist`)
    in comments get in-thread answers too.
 2. **Slack agent** — the same core behind the Events API: `@archivist`
-   mention → in-thread answer, written to the same memory.
+   mention → in-thread answer, written to the same memory. Workspace
+   (open invite): https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ
 3. **Web buddy** — the deployed console: ask the same brain from the
    browser, instantly — and file any answer as a GitHub issue in one
    click, which the hosted agent then answers on the thread. The web

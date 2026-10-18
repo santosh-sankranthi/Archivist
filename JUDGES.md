@@ -19,8 +19,10 @@ Then press **"File as GitHub issue"** on any answer — the question lands
 on the fork as a real issue and the hosted agent replies on the thread:
 the web surface *acting* on the repository.
 
-**3. Slack surface:** mention `@archivist` in the community workspace —
-answers arrive in-thread and are stored in the same memory.
+**3. Slack surface:** the workspace is open — join with
+https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ
+then mention `@archivist` in a channel: answers arrive in-thread and
+are stored in the same memory.
 
 **The part that makes it a *graph* project, not a chatbot:** all three
 surfaces share one FalkorDB graph. Ask the web buddy something you already
