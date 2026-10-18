@@ -98,7 +98,7 @@ describe("buildPaletteItems", () => {
   });
 
   it("matched starters rank above the free-text fallback", () => {
-    const items = buildPaletteItems("who should review app.py", null);
+    const items = buildPaletteItems("who calls graph.query", null);
     const asks = items.filter((item) => item.kind === "ask");
     expect(asks[0].label).toBe(STARTERS[1]);
     expect(asks[asks.length - 1].label).toContain("Ask the archive:");
