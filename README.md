@@ -15,6 +15,94 @@ loop with auditable traces; bi-temporal memory; planner → investigator →
 verifier crew with handoffs as graph state; Console v2 — landing page, graph
 explorer with path finder, ask room with trace replay — see `docs/demo/`).
 
+## Architecture & flow
+
+Three surfaces, one agent, one graph — the agent never touches a side store:
+code, history, and memory all live in FalkorDB.
+
+```mermaid
+flowchart LR
+  subgraph S["Surfaces"]
+    GH["GitHub<br/>issues · comments · @mentions"]
+    SL["Slack<br/>@archivist in channels"]
+    WEB["Web console<br/>ask · explorer · memory"]
+  end
+
+  subgraph A["Archivist service — one process"]
+    ROUTES["webapp — HTTP routes<br/>webhooks · SSE · REST"]
+    AGENT["agent loop<br/>plan → tools → verify"]
+    TOOLS["read-only tool suite<br/>GRAPH.RO_QUERY + envelope/trace"]
+    MEMW["memory writer<br/>episodes · facts · handoffs"]
+  end
+
+  FDB[("FalkorDB — one graph per repo<br/>code · history · memory")]
+  LLM["LLM endpoint — bring your own key<br/>any OpenAI-compatible API"]
+
+  GH -- "webhook (HMAC-signed)" --> ROUTES
+  SL -- "Events API (signature-verified)" --> ROUTES
+  WEB -- "REST + SSE" --> ROUTES
+  ROUTES --> AGENT
+  AGENT --> TOOLS
+  AGENT --> MEMW
+  TOOLS -- "Cypher reads" --> FDB
+  MEMW -- "Cypher writes" --> FDB
+  AGENT -- "chat + tool calls" --> LLM
+  ROUTES -- "comments / replies" --> GH
+  ROUTES -- "thread replies" --> SL
+  ROUTES -- "answers · live steps · traces" --> WEB
+```
+
+**A console ask, end to end (UML sequence)** — the same flow the SSE stream
+mirrors to the screen:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as User (console)
+  participant W as Archivist webapp
+  participant AG as Agent loop
+  participant G as FalkorDB
+  participant L as LLM (BYO key)
+
+  U->>W: POST /api/ask/stream { question, remember }
+  W->>AG: run(question) with event callback
+  loop tool rounds (max 6)
+    AG->>L: chat(messages, tools)
+    L-->>AG: tool calls
+    AG->>G: Cypher — find_symbols / callers / importers / history
+    G-->>AG: rows + exact query (envelope)
+    AG-->>W: step_start / step_result events
+    W-->>U: SSE frames — live step feed
+  end
+  AG->>L: final answer
+  L-->>AG: token stream
+  AG-->>W: answer_delta events
+  W-->>U: SSE frames — answer streams word by word
+  AG->>G: record Episode (+ PRODUCED facts when remember)
+  AG-->>W: done — full Answer with trace
+  W-->>U: SSE done — ribbon, replay, sessions rail
+```
+
+**An inbound mention (GitHub / Slack)**:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant X as GitHub / Slack
+  participant W as Archivist webapp
+  participant AG as Agent loop
+  participant G as FalkorDB
+
+  X->>W: webhook / signed event — @mention or new issue
+  W->>W: verify HMAC / signing secret
+  W->>AG: run(question)
+  AG->>G: same read-only tool suite as the console
+  G-->>AG: rows
+  AG-->>W: Answer with trace
+  W->>G: record github-answer / slack-answer Episode
+  W-->>X: post comment / thread reply, repo + refs included
+```
+
 ## Demo
 
 [`docs/demo/archivist-demo.mp4`](docs/demo/archivist-demo.mp4) (2:36) — a
