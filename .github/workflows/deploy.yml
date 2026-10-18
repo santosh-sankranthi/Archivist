@@ -16,8 +16,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  prepare:
     runs-on: [self-hosted, archivist-deploy]
+    outputs:
+      live_url: ${{ steps.live.outputs.url }}
+    steps:
+      - id: live
+        name: Resolve live URL
+        run: |
+          U="$(journalctl --user -u archivist-tunnel --no-pager -o cat 2>/dev/null | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1)"
+          if [ -n "$U" ]; then
+            echo "url=${U}/console" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://github.com/santosh-sankranthi/Archivist" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: prepare
+    runs-on: [self-hosted, archivist-deploy]
+    environment:
+      name: production
+      url: ${{ needs.prepare.outputs.live_url }}
     timeout-minutes: 45
     steps:
       - name: Pull (fast-forward only)
