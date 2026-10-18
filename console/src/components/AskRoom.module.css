@@ -303,6 +303,94 @@
   overflow-wrap: anywhere;
 }
 
+/* Inline "bring a key" form (audit #1/#3) — the keyless visitor gets a
+   compact base/model/key field right in the refused-ask card, not a
+   sysadmin env-var error. Mirrors Settings' fields, smaller. */
+.inlineKey {
+  margin-top: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.inlineField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.inlineLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-low);
+}
+
+.inlineInput {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-1);
+  background: var(--ink-850);
+  color: var(--text-hi);
+  font-size: 13px;
+}
+
+.inlineInput::placeholder {
+  color: var(--text-low);
+}
+
+.inlineInput:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-tint);
+}
+
+.inlineActions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+.inlineSave,
+.inlineRetry {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--r-1);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter var(--t-fast) var(--ease);
+}
+
+.inlineSave {
+  border: 0;
+  background: var(--ember-grad);
+  color: var(--ink-950);
+}
+
+.inlineSave:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.inlineRetry {
+  border: 1px solid var(--hairline-strong);
+  background: var(--ink-850);
+  color: var(--text-hi);
+}
+
+.inlineRetry:hover:not(:disabled) {
+  border-color: var(--amber);
+}
+
+.inlineSave:disabled,
+.inlineRetry:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .failure {
   padding: var(--sp-4);
   border: 1px solid var(--hairline);

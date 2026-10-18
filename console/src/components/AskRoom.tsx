@@ -12,7 +12,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, postJSON } from "../lib/api";
 import { formatInt } from "../lib/format";
-import { llmHeadersFor, useLLMKey } from "../lib/llmKeys";
+import {
+  getLLMKey,
+  llmHeadersFor,
+  saveLLMKey,
+  type LLMKeySettings,
+} from "../lib/llmKeys";
 import { useSession } from "../lib/session";
 import {
   mergeReplays,
@@ -63,7 +68,6 @@ export function AskRoom({
   const [draft, setDraft] = useState(initialQuestion ?? "");
   const [remember, setRemember] = useState(true);
   const session = useSession();
-  const byoKey = useLLMKey();
   const anonDemo =
     session.loaded && session.me?.anonymous === true && remember;
   const [active, setActive] = useState<{ turn: number; step: number } | null>(null);
@@ -71,6 +75,25 @@ export function AskRoom({
   // Deep links: remember which ?q= we already ran, so a same-route
   // navigation to a new question consumes it (and a repeat never reruns).
   const ranRef = useRef<string | null>(null);
+  // Inline "bring a key" affordance (audit #1/#3): a keyless visitor fills
+  // base/model/key right in the refused-ask card instead of being pointed at
+  // a sysadmin env-var error. It seeds from the saved Settings value.
+  const [inlineKey, setInlineKey] = useState<LLMKeySettings>(() => getLLMKey());
+  const [inlineSaved, setInlineSaved] = useState(false);
+
+  function saveInlineKey(settings: LLMKeySettings): void {
+    saveLLMKey(settings);
+    setInlineSaved(true);
+    window.setTimeout(() => setInlineSaved(false), 1800);
+  }
+
+  function retryWithInlineKey(turnId: number, question: string): void {
+    // Replace the refused turn with a fresh running turn and re-ask with the
+    // just-saved key. The BYO store is read lazily inside `run`, so the save
+    // above is already visible here.
+    setTurns((prev) => prev.filter((turn) => turn.id !== turnId));
+    void run(question);
+  }
 
   const busy = turns.some((turn) => turn.phase.kind === "running");
   const last = turns[turns.length - 1];
@@ -116,7 +139,9 @@ export function AskRoom({
           max_steps: 6,
           remember: remembered,
         },
-        llmHeadersFor(byoKey),
+        // Read the BYO key at call time (not from the render closure) so a
+        // save-then-retry in the refused-ask card always sends the fresh key.
+        llmHeadersFor(getLLMKey()),
       );
     } catch (error) {
       const apiError =
@@ -286,22 +311,89 @@ export function AskRoom({
 
             {turn.phase.kind === "error" && turn.phase.error.status === 503 ? (
               <div className={styles.noKey} role="status">
-                <h4 className={styles.noKeyTitle}>The console can&rsquo;t talk yet.</h4>
+                <h4 className={styles.noKeyTitle}>Bring a key to turn answers on.</h4>
                 <p className={styles.noKeyBody}>
-                  No LLM key is configured on this box, so conversations are switched
-                  off — every other surface on this screen reads the live graph. Bring
-                  your own key in Settings to turn answers on, or the box owner can set
-                  the environment below and restart the server.
+                  No LLM key is configured here, so conversations are switched off —
+                  everything else on this screen still reads the live graph. Add your
+                  own OpenAI-compatible endpoint below to start asking. It stays in
+                  your browser and is sent only with your asks.
                 </p>
-                <p className={styles.env}>
-                  ARCHIVIST_LLM_BASE_URL · ARCHIVIST_LLM_API_KEY · ARCHIVIST_LLM_MODEL
+                <form
+                  className={styles.inlineKey}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveInlineKey(inlineKey);
+                  }}
+                >
+                  <label className={styles.inlineField}>
+                    <span className={styles.inlineLabel}>Base URL</span>
+                    <input
+                      className={styles.inlineInput}
+                      type="text"
+                      value={inlineKey.base}
+                      placeholder="https://api.openai.com/v1"
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setInlineKey((prev) => ({ ...prev, base: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className={styles.inlineField}>
+                    <span className={styles.inlineLabel}>Model</span>
+                    <input
+                      className={styles.inlineInput}
+                      type="text"
+                      value={inlineKey.model}
+                      placeholder="gpt-4o-mini"
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setInlineKey((prev) => ({ ...prev, model: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className={styles.inlineField}>
+                    <span className={styles.inlineLabel}>API key</span>
+                    <input
+                      className={styles.inlineInput}
+                      type="password"
+                      value={inlineKey.key}
+                      placeholder="sk-…"
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setInlineKey((prev) => ({ ...prev, key: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <div className={styles.inlineActions}>
+                    <button
+                      type="submit"
+                      className={styles.inlineSave}
+                      disabled={!inlineKey.base.trim() || !inlineKey.model.trim()}
+                    >
+                      {inlineSaved ? "saved ✓" : "save key"}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.inlineRetry}
+                      disabled={
+                        busy || !inlineKey.base.trim() || !inlineKey.model.trim()
+                      }
+                      onClick={() => {
+                        saveInlineKey(inlineKey);
+                        retryWithInlineKey(turn.id, turn.question);
+                      }}
+                    >
+                      {busy ? "asking…" : "save & retry"}
+                    </button>
+                  </div>
+                </form>
+                <p className={styles.noKeyNote}>
+                  Prefer the full panel? It&rsquo;s under Settings — same fields, plus a
+                  key test.
                 </p>
-                {byoKey.base || byoKey.model || byoKey.key ? (
-                  <p className={styles.noKeyNote}>
-                    A key is set in Settings but the ask was still refused — check that
-                    the base URL, model, and key are complete, then Test key.
-                  </p>
-                ) : null}
               </div>
             ) : null}
 
