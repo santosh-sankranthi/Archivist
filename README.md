@@ -228,3 +228,8 @@ Built with AI coding assistants; design direction, review, and final
 verification by the submitter. (Disclosed per the event rules.)
 
 > Built during the Graph Hacks event window (Oct 15–18, 2026).
+
+## For judges
+
+How to test the live agent in 3 minutes: see [JUDGES.md](JUDGES.md).
+Full submission summary: [SUBMISSION.md](SUBMISSION.md).
