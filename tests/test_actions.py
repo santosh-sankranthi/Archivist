@@ -130,16 +130,20 @@ def test_complete_action_closes_window_and_writes_supersedes(
     sup = acts.complete_action(other["fact_id"], status="superseded")
     assert sup["completed"] is True
     assert sup["supersedes_edge"] is True
+    new_id = sup["superseded_by"]
+    assert new_id != other["fact_id"]  # a supersede never self-loops
     lineage = rg.query(
         "MATCH (n:Fact)-[:SUPERSEDES]->(o:Fact {id: $id}) RETURN n.id AS nid",
         {"id": other["fact_id"]},
     )["results"]
-    assert len(lineage) == 1
-    # the replacement carries the same action payload through.
-    new_id = lineage[0]["nid"]
+    assert [r["nid"] for r in lineage] == [new_id]
+    # the replacement carries the same action payload through, and is the
+    # proposed superseder that links back to the closed original.
     listed = {a["id"]: a for a in acts.list_actions()["actions"]}
     assert listed[other["fact_id"]]["status"] == "superseded"
     assert listed[new_id]["type"] == "change"
+    assert listed[new_id]["status"] == "proposed"
+    assert listed[new_id]["supersedes"] == [other["fact_id"]]
 
 
 def test_plan_action_stores_payload_and_episode(chain_repo, falkordb_or_skip, temp_graph):

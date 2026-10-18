@@ -14,6 +14,7 @@ worse than none.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -233,12 +234,20 @@ class Actions:
                 "completed": result["invalidated"],
                 "reason": result.get("reason"),
             }
+        # The replacement must carry the same action payload, but a content-
+        # addressed id would collide with the original (same summary) and
+        # self-supersede. Derive a distinct, deterministic id so re-running
+        # the close converges on one replacement instead of a self-loop.
+        replacement_id = "fact:" + hashlib.sha256(
+            f"supersede:{action_id}".encode()
+        ).hexdigest()[:16]
         result = self.memory.supersede_fact(
             action_id,
             text=current["summary"],
             kind=_ACTION_KIND,
             episode_id=current["episode_id"],
             refs=current["raw_refs"],
+            fact_id=replacement_id,
             action=json.dumps(current["payload"]),
         )
         if result["supersedes_edge"]:
@@ -246,8 +255,10 @@ class Actions:
                 "MATCH (f:Fact {id: $id}) SET f.status = 'superseded'",
                 {"id": action_id},
             )
+            # The replacement is the superseding action: it stays proposed
+            # (and carries the SUPERSEDES link back to the closed original).
             self._graph.query(
-                "MATCH (f:Fact {id: $id}) SET f.status = 'superseded'",
+                "MATCH (f:Fact {id: $id}) SET f.status = 'proposed'",
                 {"id": result["fact_id"]},
             )
         return {
