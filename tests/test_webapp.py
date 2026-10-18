@@ -13,6 +13,7 @@ import json
 import os
 import re
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -27,9 +28,15 @@ import pytest
 from archivist import webapp as webapp_module
 from archivist.graph import GraphWriter
 from archivist.ingest import ingest
-from archivist.llm import LLMResponse
+from archivist.llm import LLMResponse, ToolCall
 from archivist.memory import Memory
-from archivist.webapp import ApiError, RequestContext, WebApp, make_server
+from archivist.webapp import (
+    ApiError,
+    RequestContext,
+    StreamResponse,
+    WebApp,
+    make_server,
+)
 
 
 @pytest.fixture()
@@ -1673,3 +1680,224 @@ def test_llm_test_rate_limited(web_server: str):
             assert status == 200 and data["ok"] is True
         status, data = _post_headers(web_server + "/api/llm/test", {}, headers)
         assert status == 429
+
+
+class _StreamScriptLLM:
+    """Fake chat that streams: a tool round first, then a gated answer round."""
+
+    def __init__(self, gate: threading.Event | None = None):
+        self.model = "streamed-test"
+        self.usage: dict[str, int] = {}
+        self.calls = 0
+        self._gate = gate
+
+    def is_configured(self) -> bool:
+        return True
+
+    def chat(self, messages, tools=None, tool_choice="auto", on_delta=None):
+        self.calls += 1
+        if self.calls == 1:
+            return LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCall(id="c1", name="overview", raw_arguments="{}", arguments={})
+                ],
+            )
+        if self._gate is not None:
+            self._gate.wait(timeout=15)  # hold round 2 until the test says go
+        text = "streamed answer"
+        if on_delta is not None:
+            on_delta("streamed ")
+            on_delta("answer")
+        return LLMResponse(content=text)
+
+
+def _stream_request(sock: socket.socket, port: int, payload: dict) -> None:
+    body = json.dumps(payload).encode()
+    sock.sendall(
+        b"POST /api/ask/stream HTTP/1.1\r\n"
+        + f"Host: 127.0.0.1:{port}\r\n".encode()
+        + b"Content-Type: application/json\r\n"
+        + f"Content-Length: {len(body)}\r\n".encode()
+        + b"Connection: close\r\n\r\n"
+        + body
+    )
+
+
+def _sse_frames(text: str) -> list[tuple[str, dict]]:
+    """Parse (event, data) pairs out of a chunk-framed SSE byte stream."""
+    found = re.findall(r"event: (\w+)\ndata: (\{[^\n]*\})\n\n", text)
+    return [(name, json.loads(data)) for name, data in found]
+
+
+def test_ask_stream_is_incremental_and_ordered(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    gate = threading.Event()
+    host, port = falkordb_or_skip
+    ingest(chain_repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(
+        graph=temp_graph,
+        host=host,
+        port=port,
+        llm_factory=lambda: _StreamScriptLLM(gate),
+    )
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        sock = socket.create_connection(("127.0.0.1", server.server_port), timeout=10)
+        sock.settimeout(15)
+        _stream_request(
+            sock,
+            server.server_port,
+            {"question": "what is this repo?", "remember": False},
+        )
+        buf = b""
+        deadline = time.time() + 10
+        while b"event: step_result" not in buf:  # arrives while round 2 is gated
+            assert time.time() < deadline, f"nothing streamed: {buf[-200:]!r}"
+            chunk = sock.recv(4096)
+            assert chunk, "connection closed before any step frame"
+            buf += chunk
+        gate.set()  # release the answer round
+        while b"event: done" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+        sock.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    text = buf.decode()
+    assert "text/event-stream" in text
+    assert "x-accel-buffering: no" in text.lower()
+    frames = _sse_frames(text)
+    assert [name for name, _ in frames] == [
+        "step_start",
+        "step_result",
+        "answer_delta",
+        "answer_delta",
+        "done",
+    ]
+    payloads = [data for _, data in frames]
+    assert payloads[0]["tool"] == "overview" and payloads[0]["i"] == 0
+    assert payloads[1]["status"] == "ok" and payloads[1]["ms"] >= 0
+    assert "".join(p["text"] for p in payloads[2:4]) == "streamed answer"
+    done = payloads[4]
+    assert done["answer"]["text"] == "streamed answer"
+    assert done["answer"]["partial"] is False
+    assert [step["tool"] for step in done["answer"]["steps"]] == ["overview"]
+    assert done["warnings"] == []
+
+
+def test_ask_stream_byo_and_fallback_when_provider_ignores_stream(
+    chain_repo, falkordb_or_skip, temp_graph
+):
+    host, port = falkordb_or_skip
+    ingest(chain_repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    secret = "sk-stream-7890"
+    try:
+        with _FakeLLM() as fake:  # plain JSON: the provider ignores `stream`
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/ask/stream",
+                data=json.dumps(
+                    {"question": "who calls main?", "remember": False}
+                ).encode(),
+                headers=_llm_headers(fake.url, key=secret),
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=15) as res:
+                status = res.status
+                content_type = res.headers.get("Content-Type", "")
+                raw = res.read()
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert status == 200
+    assert content_type.startswith("text/event-stream")
+    text = raw.decode()
+    assert secret not in text  # the visitor's key travels one way only
+    frames = _sse_frames(text)
+    assert [name for name, _ in frames] == ["answer_delta", "done"]
+    done = frames[1][1]
+    assert done["answer"]["text"] == "fake answer"
+    sent = fake.requests[0]
+    assert sent["headers"]["Authorization"] == f"Bearer {secret}"
+    assert sent["body"]["stream"] is True
+
+
+def test_ask_stream_refuses_honestly_without_llm(web_server: str):
+    try:
+        post_json(web_server + "/api/ask/stream", {"question": "who calls main?"})
+        raise AssertionError("expected 503")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 503
+        payload = json.loads(exc.read())
+        assert payload["error"] == "unavailable"
+        assert "no LLM configured" in payload["message"]
+
+
+def test_ask_stream_validates_before_streaming(web_server: str):
+    status, data = _post_headers(
+        web_server + "/api/ask/stream",
+        {"question": "   "},
+        {"Content-Type": "application/json"},
+    )
+    assert status == 400 and data["error"] == "bad_request"
+
+
+def test_stream_write_failure_aborts_producer(
+    chain_repo, falkordb_or_skip, temp_graph, monkeypatch
+):
+    holder: dict = {}
+
+    def fake_stream(self, body):
+        def produce(abort, out):
+            holder["abort"] = abort
+            try:
+                deadline = time.time() + 30
+                while time.time() < deadline:
+                    if abort.is_set():
+                        return
+                    out.put(b"event: tick\ndata: {}\n\n")
+                    time.sleep(0.05)
+            finally:
+                holder["stopped"] = time.time()
+
+        resp = StreamResponse(produce)
+        holder["resp"] = resp
+        return resp
+
+    monkeypatch.setattr(WebApp, "_ask_stream", fake_stream)
+    host, port = falkordb_or_skip
+    ingest(chain_repo, temp_graph, host=host, port=port, rebuild=True)
+    app = WebApp(graph=temp_graph, host=host, port=port)
+    server = make_server(app, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        sock = socket.create_connection(("127.0.0.1", server.server_port), timeout=10)
+        sock.settimeout(10)
+        _stream_request(sock, server.server_port, {})
+        sock.recv(4096)  # headers + first frames
+        started = time.time()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        sock.close()  # abortive: the next server write must fail
+        for _ in range(200):  # up to 10s
+            if holder.get("stopped"):
+                break
+            time.sleep(0.05)
+        assert holder.get("stopped"), "producer never stopped after disconnect"
+        assert time.time() - started < 10
+        assert holder["abort"].is_set()
+        holder["resp"].join(5)
+    finally:
+        server.shutdown()
+        server.server_close()

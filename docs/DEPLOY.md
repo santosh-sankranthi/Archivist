@@ -139,6 +139,10 @@ published ports bind to `127.0.0.1` only. The ask room needs a key — `ARCHIVIS
   risk: the server *does* make the outbound call to the endpoint the visitor
   named — that is the feature — so treat it like any service that forwards
   requests. Key-test probes are rate-limited per client.
+- **Streaming (M7b):** `POST /api/ask/stream` serves the same run as
+  Server-Sent Events (chunked; `X-Accel-Buffering: no`); when a client goes
+  away mid-stream the run is aborted cooperatively between steps, so no
+  further model calls are started for a dead connection.
 - FalkorDB itself is never exposed: it stays bound to loopback.
 - The Ask endpoint returns an honest `503` until an LLM key is configured.
   The public demo currently runs **with** a key (opencode-go) so visitors can

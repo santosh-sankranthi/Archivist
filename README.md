@@ -158,6 +158,11 @@ the answer's trace instead of crashing the run. Transcripts:
 `docs/demo/m2b-agent-loop.txt` (scripted model, real queries) and
 `docs/demo/live-model-smoke.txt` (live model, live graph).
 
+A streaming variant — `POST /api/ask/stream` (Server-Sent Events:
+`step_start` / `step_result` / `answer_delta` frames, terminal `done` or
+`error`, heartbeats while a step runs) — lets a client render steps and
+answers as they happen; `docs/demo/m7b-stream.txt` is a live run end to end.
+
 ## Memory (M3)
 
 Every `ask.py` run is persisted to the graph as an `agent-session` episode,

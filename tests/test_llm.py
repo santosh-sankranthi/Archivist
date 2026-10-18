@@ -7,6 +7,8 @@ error handling) without any network dependency; the responses are canned.
 from __future__ import annotations
 
 import json
+import socket
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -294,3 +296,162 @@ def test_openai_fallbacks(monkeypatch):
     assert llm.base_url == "http://openai.example/v1"
     assert llm.model == "m"
     assert llm.is_configured() is True
+
+
+class _StreamHandler(BaseHTTPRequestHandler):
+    """Serves one SSE completion, frame by frame, then closes."""
+
+    frames: ClassVar[list[bytes]] = []
+    requests: ClassVar[list[dict]] = []
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        type(self).requests.append({"headers": dict(self.headers), "body": body})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        for frame in type(self).frames:
+            self.wfile.write(frame)
+            self.wfile.flush()
+        self.close_connection = True
+
+    def log_message(self, *args):
+        pass
+
+
+class _RstStreamHandler(_StreamHandler):
+    """Sends its frames, then aborts the socket (RST) mid-stream."""
+
+    requests: ClassVar[int] = 0  # type: ignore[assignment]  # counts attempts
+
+    def do_POST(self):
+        type(self).requests += 1
+        length = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for frame in type(self).frames:
+            self.wfile.write(frame)
+            self.wfile.flush()
+        # Abortive close: the client sees RST, not a clean FIN.
+        self.connection.setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+        )
+        self.connection.close()
+
+
+def _sse(payload: dict) -> bytes:
+    return f"data: {json.dumps(payload)}\n\n".encode()
+
+
+@pytest.fixture()
+def stream_server():
+    httpd = HTTPServer(("127.0.0.1", 0), _StreamHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    _StreamHandler.frames = []
+    _StreamHandler.requests = []
+    yield f"http://127.0.0.1:{httpd.server_port}/v1"
+    httpd.shutdown()
+
+
+def test_chat_stream_replays_deltas_and_assembles_tool_calls(stream_server):
+    _StreamHandler.frames = [
+        b": keepalive\n\n",
+        b"data: {this is not json}\n\n",  # junk never kills a live stream
+        _sse({"choices": [{"delta": {"content": "The "}}]}),
+        _sse({"choices": [{"delta": {"content": "answer"}}]}),
+        _sse(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_7",
+                                    "function": {
+                                        "name": "find_symbols",
+                                        "arguments": '{"query": ',
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _sse(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '"app"}'}}
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        _sse(
+            {
+                "choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+            }
+        ),
+        b"data: [DONE]\n\n",
+    ]
+    llm = ChatLLM(base_url=stream_server, model="m")
+    deltas: list[str] = []
+    response = llm.chat([{"role": "user", "content": "hi"}], on_delta=deltas.append)
+    assert deltas == ["The ", "answer"]  # in order, exactly once
+    assert response.content == "The answer"
+    call = response.tool_calls[0]
+    assert call.name == "find_symbols"
+    assert call.arguments == {"query": "app"}
+    assert call.parse_error is None
+    assert llm.usage == {"prompt_tokens": 7, "completion_tokens": 3}
+    assert _StreamHandler.requests[0]["body"]["stream"] is True
+
+
+def test_chat_stream_falls_back_when_provider_ignores_stream(server):
+    _Handler.responses.append(
+        (200, {"choices": [{"message": {"content": "plain answer"}}]})
+    )
+    llm = ChatLLM(base_url=server, model="m")
+    deltas: list[str] = []
+    response = llm.chat([{"role": "user", "content": "hi"}], on_delta=deltas.append)
+    assert response.content == "plain answer"
+    assert deltas == ["plain answer"]  # surfaced once, not silently dropped
+    assert _Handler.requests[0]["body"]["stream"] is True
+
+
+def test_chat_without_delta_callback_stays_unstreamed(server):
+    _Handler.responses.append((200, {"choices": [{"message": {"content": "ok"}}]}))
+    llm = ChatLLM(base_url=server, model="m")
+    llm.chat([{"role": "user", "content": "hi"}])
+    assert "stream" not in _Handler.requests[0]["body"]
+
+
+def test_chat_midstream_failure_is_not_replayed():
+    httpd = HTTPServer(("127.0.0.1", 0), _RstStreamHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    _RstStreamHandler.frames = [_sse({"choices": [{"delta": {"content": "half"}}]})]
+    _RstStreamHandler.requests = 0
+    try:
+        llm = ChatLLM(
+            base_url=f"http://127.0.0.1:{httpd.server_port}/v1", model="m", retries=3
+        )
+        llm._backoff = lambda attempt, retry_after: None
+        deltas: list[str] = []
+        with pytest.raises(LLMError):
+            llm.chat([{"role": "user", "content": "hi"}], on_delta=deltas.append)
+    finally:
+        httpd.shutdown()
+    assert deltas == ["half"]  # what the caller saw, it saw exactly once
+    assert _RstStreamHandler.requests == 1  # never replayed
