@@ -15,12 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from archivist.gh.config import GhConfig  # noqa: E402
-from archivist.gh.webhook import (  # noqa: E402
+from archivist.gh.config import GhConfig
+from archivist.gh.webhook import (
     handle_webhook,
     verify_signature,
 )
-from archivist.tools import RepoGraph  # noqa: E402
+from archivist.tools import RepoGraph
 
 
 def main() -> int:

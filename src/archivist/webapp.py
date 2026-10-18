@@ -889,6 +889,8 @@ class WebApp:
             elif method == "POST":
                 if path == "/github/webhook":
                     return self._github_webhook(ctx)
+                if path == "/slack/events":
+                    return self._slack_events(ctx)
                 if path == "/api/auth/signup":
                     return self._json(200, self._signup(body, ctx))
                 if path == "/api/auth/login":
@@ -3140,6 +3142,14 @@ class WebApp:
             llm=llm,
             graph=self.graph,
         )
+
+    def _slack_events(self, ctx: RequestContext) -> tuple[int, str, bytes]:
+        """Additive route: verify + enqueue one Slack Events API request."""
+        from .slack.events import handle_request
+
+        headers = dict(ctx.headers) if ctx.headers else {}
+        status, payload = handle_request(headers, ctx.raw_body)
+        return self._json(status, payload)
 
     def _github_webhook(self, ctx: RequestContext) -> tuple[int, str, bytes]:
         """Additive route: verify + enqueue one GitHub delivery, ack fast.
