@@ -34,7 +34,8 @@ def _load_env(path: Path) -> None:
 
 _load_env(ROOT / ".env")
 
-import seed_demo  # noqa: E402
+import seed_demo
+
 from archivist.gh import handlers
 from archivist.gh.config import load_config
 
