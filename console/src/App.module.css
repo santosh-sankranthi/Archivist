@@ -39,6 +39,13 @@
   }
 }
 
+/* Workspace (/ask): both shell rails step aside — the sessions rail inside
+   AskView owns the left edge — so the grid collapses to a single column at
+   every width. Stays after the .main media queries so it wins the cascade. */
+.mainWorkspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* Keep in sync with Auth.module.css's 720px breakpoint. */
 @media (max-width: 720px) {
   .mainAuth {

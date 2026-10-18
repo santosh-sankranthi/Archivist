@@ -1,7 +1,9 @@
-/** Full-page Ask — the stage: conversation (left) + trace canvas (right).
- *  Deep links (?q=…) run once on arrival. */
+/** Full-page Ask — the workspace: sessions rail (left), conversation and
+ *  trace canvas (right). Deep links (?q=…) run once on arrival; ?new=<ts>
+ *  remounts the stage clean (the rail's "new question" signal). */
 
 import { AskRoom } from "../components/AskRoom";
+import { SessionRail } from "../components/SessionRail";
 import styles from "./AskView.module.css";
 
 interface Props {
@@ -19,15 +21,22 @@ export function AskView({ query }: Props) {
   // `explain=1` opens the room with a canned "how a trace works" explainer —
   // no model call, so it never spends quota.
   const explain = query.get("explain") === "1";
+  // Remount key: a distinct question or an explicit "new" reset gets a fresh
+  // stage; plain navigations to /ask keep the live conversation intact.
+  const roomKey = `${query.get("new") ?? ""}|${question ?? ""}`;
 
   return (
-    <div className={styles.wrap}>
-      <AskRoom
-        variant="stage"
-        initialQuestion={question}
-        autoRun={autoRun}
-        explain={explain}
-      />
+    <div className={styles.workspace}>
+      <SessionRail />
+      <div className={styles.wrap}>
+        <AskRoom
+          key={roomKey}
+          variant="stage"
+          initialQuestion={question}
+          autoRun={autoRun}
+          explain={explain}
+        />
+      </div>
     </div>
   );
 }

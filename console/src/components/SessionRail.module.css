@@ -1,0 +1,183 @@
+/* Sessions rail — the workspace's history across surfaces. */
+
+.rail {
+  width: 264px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--hairline);
+  background: var(--ink-900);
+}
+
+.head {
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.01em;
+  color: var(--text-hi);
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--amber-hover);
+}
+
+.sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-low);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.newBtn {
+  margin: var(--sp-2) var(--sp-4) var(--sp-3);
+  padding: 9px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-950);
+  background: var(--amber);
+  border: 0;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.newBtn:hover {
+  background: var(--amber-hover);
+}
+
+.listLabel {
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  color: var(--text-low);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+
+.row:hover {
+  background: var(--ink-850);
+  border-color: var(--hairline);
+}
+
+.row:focus-visible,
+.newBtn:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-1);
+  padding: 1px 5px;
+  flex: none;
+}
+
+.badgeGh {
+  color: var(--teal);
+}
+
+.badgeSl {
+  color: var(--blue);
+}
+
+.rowTime {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-low);
+}
+
+.rowText {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-mid);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.empty {
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--text-low);
+  margin: 0;
+}
+
+.foot {
+  border-top: 1px solid var(--hairline);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.foot a {
+  color: var(--text-mid);
+  text-decoration: none;
+}
+
+.foot a:hover {
+  color: var(--text-hi);
+}
+
+.footSep {
+  color: var(--text-low);
+}
+
+@media (max-width: 900px) {
+  .rail {
+    display: none;
+  }
+}

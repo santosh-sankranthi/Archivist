@@ -1,7 +1,16 @@
-/* Ask stage shell — full-height split handled inside AskRoom. */
+/* Ask workspace shell — sessions rail + stage; the stage handles its own
+   full-height split (conversation left, trace canvas right). */
+
+.workspace {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}
 
 .wrap {
   height: 100%;
   min-height: 0;
   display: flex;
+  flex: 1;
+  min-width: 0;
 }

@@ -776,3 +776,136 @@
     gap: 10px;
   }
 }
+/* ---- Live surfaces + judges strip (buddy story, additive) ---- */
+
+.sx {
+  border-top: 1px solid var(--hairline);
+  padding: 88px 24px 72px;
+}
+
+.sxInner {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.sxKicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--amber);
+  margin: 0 0 14px;
+}
+
+.sxTitle {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 3.4vw, 40px);
+  font-weight: 400;
+  color: var(--text-hi);
+  margin: 0 0 34px;
+}
+
+.sxGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sxCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 20px 18px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--ink-900);
+  transition:
+    border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+
+.sxCard:hover {
+  border-color: var(--hairline-strong);
+  transform: translateY(-2px);
+}
+
+.sxBadge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--teal);
+}
+
+.sxCardTitle {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-hi);
+  margin: 0;
+}
+
+.sxCardBody {
+  flex: 1;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-mid);
+  margin: 0;
+}
+
+.sxLink {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--amber);
+  text-decoration: none;
+}
+
+.sxLink:hover {
+  color: var(--amber-hover);
+  text-decoration: underline;
+}
+
+.jg {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-top: 26px;
+  padding: 16px 20px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--ink-900);
+}
+
+.jgLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--amber);
+  flex: none;
+}
+
+.jgBody {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-mid);
+  margin: 0;
+}
+
+.jgLink {
+  color: var(--text-hi);
+  text-decoration: underline;
+  text-decoration-color: var(--hairline-strong);
+  text-underline-offset: 3px;
+}
+
+.jgLink:hover {
+  color: var(--amber-hover);
+}
+
+@media (max-width: 860px) {
+  .sxGrid {
+    grid-template-columns: 1fr;
+  }
+}

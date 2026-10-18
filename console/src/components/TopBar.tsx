@@ -7,6 +7,8 @@ import styles from "./TopBar.module.css";
 
 interface Props {
   state: GraphState | null;
+  /** Workspace variant: drop telemetry chips so the stage stays the focus. */
+  minimal?: boolean;
   onOpenPalette: () => void;
   onOpenSettings: () => void;
 }
@@ -36,7 +38,7 @@ function PersonGlyph() {
 }
 
 /** Top bar: wordmark lockup, repo chip with live counts, LLM status, ⌘K hint. */
-export function TopBar({ state, onOpenPalette, onOpenSettings }: Props) {
+export function TopBar({ state, minimal = false, onOpenPalette, onOpenSettings }: Props) {
   const isMac =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const totals = state ? graphTotals(state) : null;
@@ -51,7 +53,7 @@ export function TopBar({ state, onOpenPalette, onOpenSettings }: Props) {
     <header className={styles.bar}>
       <div className={styles.brand}>
         <span className={styles.wordmark}>Archivist</span>
-        <span className={styles.tagline}>graph console</span>
+        {minimal ? null : <span className={styles.tagline}>graph console</span>}
       </div>
 
       <div className={styles.right}>
@@ -62,7 +64,7 @@ export function TopBar({ state, onOpenPalette, onOpenSettings }: Props) {
           ) : null}
         </span>
 
-        {counts ? (
+        {counts && !minimal ? (
           <span className={styles.chip} title="live node / edge counts">
             <span className={styles.mono}>{formatInt(counts.nodes)}</span>
             <span className={styles.dim}>nodes</span>
@@ -72,20 +74,22 @@ export function TopBar({ state, onOpenPalette, onOpenSettings }: Props) {
           </span>
         ) : null}
 
-        <span
-          className={styles.chip}
-          title={
-            llm?.configured
-              ? `answers enabled — ${llm.model ?? "model set"}`
-              : "no LLM key on this box — the explorer stays fully live; asking is disabled"
-          }
-        >
+        {minimal ? null : (
           <span
-            className={llm?.configured ? styles.dotOn : styles.dotOff}
-            aria-hidden="true"
-          />
-          {llm === null ? "llm —" : llm.configured ? `llm ${llm.model ?? "ready"}` : "llm not set"}
-        </span>
+            className={styles.chip}
+            title={
+              llm?.configured
+                ? `answers enabled — ${llm.model ?? "model set"}`
+                : "no LLM key on this box — the explorer stays fully live; asking is disabled"
+            }
+          >
+            <span
+              className={llm?.configured ? styles.dotOn : styles.dotOff}
+              aria-hidden="true"
+            />
+            {llm === null ? "llm —" : llm.configured ? `llm ${llm.model ?? "ready"}` : "llm not set"}
+          </span>
+        )}
 
         {!onAuthPage && session.me?.user ? (
           <button

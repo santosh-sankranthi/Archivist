@@ -176,6 +176,8 @@ export function AskRoom({
         turn.id === id ? { ...turn, phase: { kind: "done", data } } : turn,
       ),
     );
+    // New episode landed — the sessions rail refetches instantly.
+    window.dispatchEvent(new Event("archivist:memory-changed"));
     await fetchReplay(id, data);
   }
 

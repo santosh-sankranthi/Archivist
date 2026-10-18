@@ -47,10 +47,13 @@ function Shell() {
   const narrow = useMediaQuery("(max-width: 720px)");
   const authRoute =
     path === "/login" || path === "/signup" || path === "/account";
+  // The workspace (/ask) is rail-free: SessionRail inside AskView owns the
+  // left edge, and the collapsible Ask rail would just mirror the stage.
+  const workspaceRoute = path === "/ask";
   // Below 720px the rails step aside for every route (not just auth) so the
   // center column gets the full viewport; the top-bar "Menu" button opens the
   // ⌘K palette as the discoverable mobile replacement (audit #5).
-  const showRail = !narrow;
+  const showRail = !narrow && !workspaceRoute;
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -106,8 +109,13 @@ function Shell() {
 
   return (
     <div className={styles.app}>
-      <TopBar state={state.data} onOpenPalette={() => setPaletteOpen(true)} onOpenSettings={() => setSettingsOpen(true)} />
-      <div className={`${styles.main}${authRoute ? ` ${styles.mainAuth}` : ""}`}>
+      <TopBar
+        state={state.data}
+        minimal={workspaceRoute}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      <div className={`${styles.main}${workspaceRoute ? ` ${styles.mainWorkspace}` : authRoute ? ` ${styles.mainAuth}` : ""}`}>
         {showRail ? (
             <LeftRail
               path={path}
@@ -131,7 +139,7 @@ function Shell() {
             </motion.div>
           </AnimatePresence>
         </main>
-        {authRoute || narrow ? null : (
+        {authRoute || narrow || workspaceRoute ? null : (
           <RightRail open={rightOpen} onToggle={() => setRightOpen((open) => !open)} />
         )}
       </div>

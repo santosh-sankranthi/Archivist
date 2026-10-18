@@ -23,6 +23,13 @@ const d = (ms: number) => ({ "--d": `${ms}ms` }) as CSSProperties;
 
 const TRACE_Q = "Who calls url_for — and what would break if its signature changes?";
 
+/** The buddy story's live entry points — landing surfaces + judges strip. */
+const GH_ISSUES = "https://github.com/santosh-sankranthi/falkordb-py/issues";
+const SLACK_INVITE =
+  "https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ";
+const REPO_URL = "https://github.com/santosh-sankranthi/Archivist";
+const JUDGES_URL = `${REPO_URL}/blob/main/JUDGES.md`;
+
 const STAT_LABELS = ["NODES", "EDGES", "COMMITS", "SYMBOLS"] as const;
 
 const CARDS = [
@@ -46,8 +53,9 @@ const CARDS = [
   },
 ];
 
-/** Landing page at `/console/` — the hero, the stat rig, capabilities, footer.
- *  The console shell lives behind it at `/console/overview`. */
+/** Landing page at `/console/` — hero, stat rig, capabilities, live surfaces
+ *  (GitHub / Slack / web), judges strip, footer. The workspace lives behind
+ *  it at `/console/ask`. */
 export function Landing() {
   const state = useApi<GraphState>("/api/state");
   const [staged, setStaged] = useState(false);
@@ -222,8 +230,8 @@ export function Landing() {
               <Magnetic strength={7}>
                 <a
                   className={`${styles.btn} ${styles.btnPrimary}`}
-                  href={href("/overview")}
-                  onClick={onLink(href("/overview"))}
+                  href={href("/ask")}
+                  onClick={onLink(href("/ask"))}
                 >
                   <span>Enter the console</span>
                   <svg
@@ -310,10 +318,99 @@ export function Landing() {
         </div>
       </section>
 
+      <section className={styles.sx} aria-labelledby="surfaces-title">
+        <div className={styles.sxInner}>
+          <p className={styles.sxKicker}>LIVE SURFACES — ONE BUDDY, THREE DOORS</p>
+          <h2 id="surfaces-title" className={styles.sxTitle}>
+            It works where your project lives.
+          </h2>
+          <div className={styles.sxGrid}>
+            <article className={styles.sxCard}>
+              <span className={styles.sxBadge}>GITHUB — LIVE</span>
+              <h3 className={styles.sxCardTitle}>An issue inbox that answers.</h3>
+              <p className={styles.sxCardBody}>
+                Open a question on the demo repo. The agent replies with
+                file-and-line citations, triage labels, and links to related
+                threads — then files the whole exchange into memory.
+              </p>
+              <a
+                className={styles.sxLink}
+                href={GH_ISSUES}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open an issue ↗
+              </a>
+            </article>
+            <article className={styles.sxCard}>
+              <span className={styles.sxBadge}>SLACK — LIVE</span>
+              <h3 className={styles.sxCardTitle}>
+                Mention it, it answers in-thread.
+              </h3>
+              <p className={styles.sxCardBody}>
+                Join the workspace and mention @archivist — in a channel or a
+                DM. Answers land in the thread, cited, on the same brain as
+                the repo.
+              </p>
+              <a
+                className={styles.sxLink}
+                href={SLACK_INVITE}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Join the workspace ↗
+              </a>
+            </article>
+            <article className={styles.sxCard}>
+              <span className={styles.sxBadge}>WEB — THIS CONSOLE</span>
+              <h3 className={styles.sxCardTitle}>
+                Ask from the browser, trace every step.
+              </h3>
+              <p className={styles.sxCardBody}>
+                Watch each answer assemble its Cypher evidence — then file any
+                answer back to GitHub as a real issue in one click.
+              </p>
+              <a
+                className={styles.sxLink}
+                href={href("/ask")}
+                onClick={onLink(href("/ask"))}
+              >
+                Ask the buddy →
+              </a>
+            </article>
+          </div>
+          <div className={styles.jg}>
+            <span className={styles.jgLabel}>JUDGES</span>
+            <p className={styles.jgBody}>
+              Everything here is live and checkable: start with{" "}
+              <a
+                className={styles.jgLink}
+                href={JUDGES_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                JUDGES.md ↗
+              </a>{" "}
+              and the{" "}
+              <a
+                className={styles.jgLink}
+                href={REPO_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                source repo ↗
+              </a>
+              . Every number on this page is queried from FalkorDB — not
+              estimated.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <footer className={`${styles.foot} ${styles.rv}`} style={d(800)}>
         <span>© 2026 ARCHIVIST — RUNS OFFLINE</span>
         <nav className={styles.footNav} aria-label="Footer">
-          <a href={href("/overview")} onClick={onLink(href("/overview"))}>
+          <a href={href("/ask")} onClick={onLink(href("/ask"))}>
             CONSOLE
           </a>
           <span className={styles.sep} aria-hidden="true">·</span>
@@ -321,8 +418,12 @@ export function Landing() {
             EXPLORER
           </a>
           <span className={styles.sep} aria-hidden="true">·</span>
-          <a href={href("/ask")} onClick={onLink(href("/ask"))}>
-            ASK
+          <a href={GH_ISSUES} target="_blank" rel="noreferrer">
+            GITHUB
+          </a>
+          <span className={styles.sep} aria-hidden="true">·</span>
+          <a href={SLACK_INVITE} target="_blank" rel="noreferrer">
+            SLACK
           </a>
           <span className={styles.sep} aria-hidden="true">·</span>
           <a href={href("/about")} onClick={onLink(href("/about"))}>

@@ -17,16 +17,12 @@ interface Props {
   onOpenPalette: () => void;
 }
 
+/* Workspace-first nav — the landing absorbs the rest; demoted views stay
+   alive via the ⌘K palette and deep links (two-zone IA). */
 const NAV = [
-  { path: "/overview", label: "Home" },
-  { path: "/explorer", label: "Explorer" },
-  { path: "/impact", label: "Impact" },
-  { path: "/ownership", label: "Ownership" },
   { path: "/ask", label: "Ask" },
+  { path: "/explorer", label: "Explorer" },
   { path: "/memory", label: "Memory" },
-  { path: "/crew", label: "Crew" },
-  { path: "/history", label: "Time machine" },
-  { path: "/about", label: "About" },
 ];
 
 /** Left rail: view nav, live search over the graph, hub quick-lists, memory footer. */
