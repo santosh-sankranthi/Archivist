@@ -23,7 +23,9 @@ something.
 2. **Slack agent** — the same core behind the Events API: `@archivist`
    mention → in-thread answer, written to the same memory.
 3. **Web buddy** — the deployed console: ask the same brain from the
-   browser, instantly.
+   browser, instantly — and file any answer as a GitHub issue in one
+   click, which the hosted agent then answers on the thread. The web
+   surface *acts* on the repo, not just reads it.
 4. **The graph is the product** — `repo:falkordb-py` holds the ingested
    code (65 files, 56 modules, 426 symbols, 509 commits, 21 authors) plus
    **1,541 documentation sections** as `DocPage` nodes, plus *interaction
@@ -76,5 +78,5 @@ best.
 ## Roadmap
 
 GitHub App packaging (replacing the PAT), duplicate detection via graph
-embeddings, a weekly community brief, richer web→GitHub action hand-offs,
-multi-repo communities.
+embeddings, a weekly community brief, richer action hand-offs (labels and
+assignments from the console), multi-repo communities.

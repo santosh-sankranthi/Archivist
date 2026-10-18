@@ -891,6 +891,8 @@ class WebApp:
                     return self._github_webhook(ctx)
                 if path == "/slack/events":
                     return self._slack_events(ctx)
+                if path == "/api/gh/file-issue":
+                    return self._json(200, self._gh_file_issue(body))
                 if path == "/api/auth/signup":
                     return self._json(200, self._signup(body, ctx))
                 if path == "/api/auth/login":
@@ -3142,6 +3144,30 @@ class WebApp:
             llm=llm,
             graph=self.graph,
         )
+
+    def _gh_file_issue(self, body: dict) -> dict:
+        """Additive route: file a console answer as a GitHub issue (web -> act).
+
+        The issue lands on the mapped demo repo under the bot identity; the
+        resulting webhook lets the hosted agent answer it on the thread, so
+        the console can *act* on GitHub, not just read from it.
+        """
+        from .gh.client import GhError
+        from .gh.filing import file_issue
+
+        question = str(body.get("question") or "").strip()
+        answer = str(body.get("answer") or "")[:4000]
+        if not question:
+            raise ApiError(400, "question is required", code="bad_request")
+        if len(question) > 2000:
+            raise ApiError(400, "question is too long", code="bad_request")
+        try:
+            filed = file_issue(question, answer)
+        except GhError as exc:
+            raise ApiError(
+                503, f"GitHub surface unavailable: {exc}", code="gh_unavailable"
+            ) from exc
+        return {"filed": True, **filed}
 
     def _slack_events(self, ctx: RequestContext) -> tuple[int, str, bytes]:
         """Additive route: verify + enqueue one Slack Events API request."""

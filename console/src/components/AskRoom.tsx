@@ -47,6 +47,21 @@ interface Turn {
   phase: Phase;
   replay: ReplayBundle | null;
   replayError: string | null;
+  filed: FiledState;
+}
+
+type FiledState =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "done"; number: number; url: string }
+  | { kind: "error"; message: string };
+
+/** POST /api/gh/file-issue response (web -> GitHub action). */
+interface FileIssueResponse {
+  filed: boolean;
+  repo: string;
+  number: number;
+  url: string;
 }
 
 interface Props {
@@ -129,6 +144,7 @@ export function AskRoom({
         phase: { kind: "running" },
         replay: null,
         replayError: null,
+        filed: { kind: "idle" },
       },
     ]);
     setDraft("");
@@ -184,6 +200,41 @@ export function AskRoom({
       setTurns((prev) =>
         prev.map((turn) =>
           turn.id === turnId ? { ...turn, replayError: message } : turn,
+        ),
+      );
+    }
+  }
+
+  async function fileIssue(
+    turnId: number,
+    question: string,
+    answer: string,
+  ): Promise<void> {
+    setTurns((prev) =>
+      prev.map((turn) =>
+        turn.id === turnId ? { ...turn, filed: { kind: "busy" } } : turn,
+      ),
+    );
+    try {
+      const response = await postJSON<FileIssueResponse>("/api/gh/file-issue", {
+        question,
+        answer,
+      });
+      setTurns((prev) =>
+        prev.map((turn) =>
+          turn.id === turnId
+            ? {
+                ...turn,
+                filed: { kind: "done", number: response.number, url: response.url },
+              }
+            : turn,
+        ),
+      );
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : String(error);
+      setTurns((prev) =>
+        prev.map((turn) =>
+          turn.id === turnId ? { ...turn, filed: { kind: "error", message } } : turn,
         ),
       );
     }
@@ -475,6 +526,33 @@ export function AskRoom({
                         : "not saved"
                       : "not remembered"}
                   </span>
+                </div>
+                <div className={styles.fileRow}>
+                  {turn.filed.kind === "done" ? (
+                    <a
+                      className={styles.filedLink}
+                      href={turn.filed.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      filed as #{turn.filed.number} on GitHub ↗
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.fileBtn}
+                      disabled={turn.filed.kind === "busy"}
+                      onClick={() => {
+                        if (turn.phase.kind !== "done") return;
+                        void fileIssue(turn.id, turn.question, turn.phase.data.answer.text);
+                      }}
+                    >
+                      {turn.filed.kind === "busy" ? "filing…" : "File as GitHub issue"}
+                    </button>
+                  )}
+                  {turn.filed.kind === "error" ? (
+                    <span className={styles.fileError}>{turn.filed.message}</span>
+                  ) : null}
                 </div>
                 {turn.replayError ? (
                   <p className={styles.softNote}>

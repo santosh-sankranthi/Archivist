@@ -15,6 +15,10 @@ https://figure-them-trucks-concentrate.trycloudflare.com/console/
 Ask the same class of question in the console. Anonymous visits are
 quota-limited so the demo stays fair for everyone.
 
+Then press **"File as GitHub issue"** on any answer — the question lands
+on the fork as a real issue and the hosted agent replies on the thread:
+the web surface *acting* on the repository.
+
 **3. Slack surface:** mention `@archivist` in the community workspace —
 answers arrive in-thread and are stored in the same memory.
 

@@ -72,7 +72,12 @@ def main() -> int:
     if answered and not args.force:
         print(f"issue #{args.number} already has a bot reply; --force to re-answer")
         return 0
-    title, body = seed_demo.ISSUES[args.number - 1]
+    if 1 <= args.number <= len(seed_demo.ISSUES):
+        title, body = seed_demo.ISSUES[args.number - 1]
+    else:
+        _code, issue = gh._request("GET", f"/repos/{slug}/issues/{args.number}")
+        title = (issue or {}).get("title") or ""
+        body = (issue or {}).get("body") or ""
     payload = {
         "action": "opened",
         "issue": {

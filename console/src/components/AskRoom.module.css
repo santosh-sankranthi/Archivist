@@ -624,3 +624,56 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* ---- Web -> GitHub: file any answer as an issue (the buddy *acts*). */
+.fileRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.fileBtn {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-mid);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition:
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+.fileBtn:hover:not(:disabled) {
+  color: var(--text-hi);
+  border-color: var(--hairline-strong);
+  background: rgba(122, 162, 247, 0.08);
+}
+
+.fileBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.filedLink {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-hi);
+  text-decoration: none;
+}
+
+.filedLink:hover {
+  text-decoration: underline;
+}
+
+.fileError {
+  font-size: 12px;
+  font-style: italic;
+  color: #d98a8a;
+}

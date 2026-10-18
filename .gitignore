@@ -7,3 +7,4 @@ data/
 docs/demo/.raw/
 .pytest_cache/
 .ruff_cache/
+console/tsconfig.tsbuildinfo
