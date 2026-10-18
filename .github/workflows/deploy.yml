@@ -1,0 +1,30 @@
+name: Deploy
+
+# Self-hosted pipeline — runs ON the WSL box that serves the demo (runner label
+# "archivist-deploy"). Trigger scope is deliberately narrow: pushes to main and
+# manual dispatch only. The work itself lives in ci/deploy.sh.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, archivist-deploy]
+    timeout-minutes: 45
+    steps:
+      - name: Pull (fast-forward only)
+        run: /home/openclaw/projects/archivist/ci/deploy.sh pull "$GITHUB_SHA"
+      - name: Test gates
+        run: /home/openclaw/projects/archivist/ci/deploy.sh test
+      - name: Apply (rebuild if needed, restart, smoke)
+        run: /home/openclaw/projects/archivist/ci/deploy.sh apply
+      - name: Report (live URL)
+        run: /home/openclaw/projects/archivist/ci/deploy.sh report
