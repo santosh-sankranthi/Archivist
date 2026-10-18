@@ -1,0 +1,110 @@
+=== Increment 1 — actions API evidence ===
+Run: .venv/bin/python scripts/serve.py --http-port 8789 --llm-script docs/demo/m4r/ask-script.json
+Then: POST /api/ask (scenario 0 emits an 'act' tool call -> plan_action)
+
+$ curl -s http://127.0.0.1:8789/api/ask -X POST -H 'Content-Type: application/json' -d '{"question":"what breaks if url_for changes?"}'
+
+$ curl -s 'http://127.0.0.1:8789/api/graph/actions'
+---
+{
+    "graph": "repo:flask",
+    "status": "all",
+    "counts": {
+        "total": 2,
+        "proposed": 2,
+        "done": 0,
+        "superseded": 0
+    },
+    "actions": [
+        {
+            "id": "fact:d1b9137ee92e7c59",
+            "summary": "Add a regression test for url_for's public signature",
+            "type": "test",
+            "status": "proposed",
+            "targets": [
+                {
+                    "kind": "symbol",
+                    "file": "src/flask/helpers.py",
+                    "qualname": "url_for"
+                }
+            ],
+            "evidence": [
+                {
+                    "kind": "symbol",
+                    "file": "src/flask/helpers.py",
+                    "qualname": "url_for"
+                }
+            ],
+            "episode_id": "agent-session:20261017T235732Z:28031530",
+            "supersedes": [],
+            "created_at": 1792281452,
+            "refs": [
+                {
+                    "kind": "Symbol",
+                    "label": "src/flask/helpers.py:url_for"
+                }
+            ]
+        },
+        {
+            "id": "fact:a0bc0fbff7f0e49b",
+            "summary": "Add a regression test for url_for's public signature",
+            "type": "test",
+            "status": "proposed",
+            "targets": [
+                {
+                    "kind": "symbol",
+                    "file": "src/flask/helpers.py",
+                    "qualname": "url_for"
+                }
+            ],
+            "evidence": [
+                {
+                    "kind": "symbol",
+                    "file": "src/flask/helpers.py",
+                    "qualname": "url_for"
+                }
+            ],
+            "episode_id": "agent-session:20261018T000807Z:835b002d",
+            "supersedes": [],
+            "created_at": 1792282087,
+            "refs": [
+                {
+                    "kind": "Symbol",
+                    "label": "src/flask/helpers.py:url_for"
+                }
+            ]
+        }
+    ],
+    "notes": []
+}
+
+=== POST /api/actions/{id}/complete round-trip (auth-gated, own repo) ===
+Plan a review action, then close it; note the window closes (invalid_at set,
+status -> done) and the supersede path writes a SUPERSEDES edge with a
+distinct replacement (no self-loop).
+
+$ plan_action("review url_for's public callers", type="review", targets=[{kind:symbol, file:src/flask/helpers.py, qualname:url_for}], evidence=[{kind:file, path:src/flask/helpers.py}])
+-> fact:bd28f9e66873fa68
+
+$ POST /api/actions/fact:bd28f9e66873fa68/complete  (anonymous, {"status":"done"})
+-> 401 {"error":"unauthorized","message":"sign in to complete actions"}
+
+$ POST /api/actions/fact:bd28f9e66873fa68/complete  (signed-in, own repo, {"status":"done"})
+-> 200 {"id":"fact:bd28f9e66873fa68","status":"done","completed":true,"reason":null}
+
+$ POST /api/actions/fact:c72c716cbd4c989d/complete  (signed-in, own repo, {"status":"superseded"})
+-> 200 {"id":"fact:c72c716cbd4c989d","status":"superseded","completed":true,
+         "superseded_by":"fact:e573d3f2d080cc67","supersedes_edge":true,"reason":null}
+
+$ GET /api/graph/actions?status=all  (own repo)
+{
+  "graph": "inc1:evidence",
+  "status": "all",
+  "counts": {"total": 3, "proposed": 1, "done": 1, "superseded": 1},
+  "actions": [
+    { "id": "fact:e573d3f2d080cc67", "type": "change", "status": "proposed",
+      "supersedes": ["fact:c72c716cbd4c989d"],  ... },
+    { "id": "fact:bd28f9e66873fa68", "type": "review", "status": "done", ... },
+    { "id": "fact:c72c716cbd4c989d", "type": "change", "status": "superseded", ... }
+  ]
+}
