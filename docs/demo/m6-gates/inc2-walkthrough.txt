@@ -1,0 +1,18 @@
+increment 2 — onboarding walkthrough (timed)
+[00:40:33] start: land on http://127.0.0.1:8789/console/
+[00:40:33]   landing hero visible (0.2s)
+[00:40:33]   entered console → Home (0.4s)
+[00:40:34]   starter tapped → trace built (1.1s)
+[00:40:34] END-TO-END: 1.1s < 120s PASS
+[00:40:34] landing CTA: assert prefill-without-run
+[00:40:34]   composer value prefilled: 66 chars
+[00:40:36]   captured prefilled-but-not-run composer
+[00:40:36]   confirmed: no model call fired (no running turn)
+[00:40:36] Home 'how a trace works' link → canned explainer
+[00:40:37]   explainer rendered with no model call
+[00:40:37] responsive captures: 768px + 375px
+[00:40:39]   no horizontal overflow: landing@768
+[00:40:40]   no horizontal overflow: home@768
+[00:40:41]   no horizontal overflow: home@375
+[00:40:42]   no horizontal overflow: landing@375
+[00:40:42] done — all captures written

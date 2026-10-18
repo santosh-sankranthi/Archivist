@@ -46,11 +46,18 @@ interface Props {
   variant: "stage" | "panel";
   initialQuestion?: string | null;
   autoRun?: boolean;
+  /** Show a canned "how a trace works" explainer on arrival (no model call). */
+  explain?: boolean;
 }
 
 let nextTurnId = 1;
 
-export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Props) {
+export function AskRoom({
+  variant,
+  initialQuestion = null,
+  autoRun = false,
+  explain = false,
+}: Props) {
   const stage = variant === "stage";
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState(initialQuestion ?? "");
@@ -76,11 +83,12 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
     if (!autoRun || initialQuestion === null) return;
     const question = initialQuestion.trim();
     if (!question || ranRef.current === question) return;
-    // A landing/help deep link asks the same question as a first-time visitor
-    // would; we surface the suggestion in the box instead of firing it — the
-    // visitor decides when to run it (audit #6).
     ranRef.current = question;
-    setDraft(question);
+    void run(question);
+    // run is defined per render; the guard dedupes by question *value* —
+    // a fresh deep link (⌘K ask, starter, ?q= change) runs once. The landing
+    // "See a trace" CTA instead links with `run=0`, so AskView passes
+    // autoRun=false and this never fires (audit #6).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRun, initialQuestion]);
 
@@ -206,11 +214,49 @@ export function AskRoom({ variant, initialQuestion = null, autoRun = false }: Pr
         ? stage
           ? (
             <div className={styles.intro}>
-              <h1 className={styles.introTitle}>Ask the archive.</h1>
-              <p className={styles.introBody}>
-                One question, one traced path through the graph — every step keeps
-                its Cypher, its timing, and the subgraph it touched.
-              </p>
+              {explain ? (
+                <>
+                  <h1 className={styles.introTitle}>How an answer is traced.</h1>
+                  <div className={styles.explain}>
+                    <p className={styles.explainLead}>
+                      Every answer is a path through the graph — and every step is
+                      shown, never hidden.
+                    </p>
+                    <ol className={styles.explainSteps}>
+                      <li>
+                        <strong>Ask.</strong> Type a question and press Ask — one
+                        turn, one trace.
+                      </li>
+                      <li>
+                        <strong>The agent plans.</strong> It picks which graph tools
+                        to call: callers, owners, history, shortest path.
+                      </li>
+                      <li>
+                        <strong>Each step is recorded.</strong> The exact Cypher, the
+                        rows it returned, and the milliseconds it took are kept
+                        beside the answer.
+                      </li>
+                      <li>
+                        <strong>Replay any step.</strong> Tap a chip in the ribbon and
+                        its subgraph lights up on the canvas — the proof, not a
+                        screenshot.
+                      </li>
+                    </ol>
+                    <p className={styles.explainCta}>
+                      Type a question below to see it happen — or head back to Home
+                      and tap a starter.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h1 className={styles.introTitle}>Ask the archive.</h1>
+                  <p className={styles.introBody}>
+                    One question, one traced path through the graph — every step keeps
+                    its Cypher, its timing, and the subgraph it touched.
+                  </p>
+                </>
+              )}
             </div>
           )
           : (

@@ -247,8 +247,8 @@ export function Landing() {
               <Magnetic strength={4}>
                 <a
                   className={`${styles.btn} ${styles.btnGhost}`}
-                  href={href("/ask", { q: TRACE_Q })}
-                  onClick={onLink(href("/ask", { q: TRACE_Q }))}
+                  href={href("/ask", { q: TRACE_Q, run: "0" })}
+                  onClick={onLink(href("/ask", { q: TRACE_Q, run: "0" }))}
                 >
                   See a trace
                 </a>

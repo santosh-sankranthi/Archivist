@@ -173,7 +173,10 @@
 }
 
 /* Below 720px the rails are hidden; the Menu button (⌘K palette) is the
-   primary navigation surface. */
+   primary navigation surface. The telemetry chips (repo, counts, llm) are
+   static readouts, not navigation — they step aside so the brand, account,
+   Menu, and settings controls stay on one line without horizontal overflow
+   (audit #5 / inc2 mobile gate). */
 @media (max-width: 720px) {
   .menu {
     display: inline-block;
@@ -189,5 +192,9 @@
 
   .wordmark {
     font-size: 18px;
+  }
+
+  .right > .chip:not(.account) {
+    display: none;
   }
 }

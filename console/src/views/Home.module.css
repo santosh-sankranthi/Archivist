@@ -122,6 +122,29 @@
   background: var(--ink-850);
 }
 
+.traceHint {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+.traceLink {
+  color: var(--amber);
+  font-size: 13px;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.traceLink:hover {
+  color: var(--amber-hover);
+}
+
+.traceNote {
+  color: var(--text-low);
+  font-size: 12px;
+}
+
 /* -- stats ----------------------------------------------------------------- */
 
 .stats {
@@ -161,6 +184,27 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-low);
+}
+
+/* Below 720px the five-column stat strip reflows so it never forces
+   horizontal overflow on a phone (inc2 mobile gate). */
+@media (max-width: 720px) {
+  .stats {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat:nth-child(2n + 1) {
+    border-left: 0;
+  }
+
+  .stat {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .stat:nth-child(-n + 2) {
+    border-top: 0;
+  }
 }
 
 /* -- sections -------------------------------------------------------------- */

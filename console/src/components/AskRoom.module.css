@@ -132,6 +132,44 @@
   line-height: 1.65;
 }
 
+/* -- "how a trace works" explainer (canned, no model call) -------------- */
+
+.explain {
+  margin-top: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.explainLead {
+  color: var(--text-hi);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.explainSteps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0 0 0 var(--sp-4);
+  list-style: decimal;
+  color: var(--text-mid);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.explainSteps strong {
+  color: var(--text-hi);
+  font-weight: 600;
+}
+
+.explainCta {
+  color: var(--text-low);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .turn {
   display: flex;
   flex-direction: column;

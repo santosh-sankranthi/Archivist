@@ -86,6 +86,20 @@ export function Home({ state, stateError, overview, overviewError, onRetryOvervi
             </button>
           ))}
         </div>
+        <div className={styles.traceHint}>
+          <a
+            className={styles.traceLink}
+            href={href("/ask", { explain: "1" })}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+              event.preventDefault();
+              navigate(href("/ask", { explain: "1" }));
+            }}
+          >
+            See how an answer is traced →
+          </a>
+          <span className={styles.traceNote}>no question needed — no model call</span>
+        </div>
       </section>
 
       {stats ? (
