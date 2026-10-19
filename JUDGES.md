@@ -1,5 +1,7 @@
 ## For judges — how to test Archivist in 3 minutes
 
+> **Full walkthrough:** the live [reader guide](https://figure-them-trucks-concentrate.trycloudflare.com/docs) — capabilities, per-surface guides, and the complete testing checklist with expected results.
+
 **1. GitHub surface (the fork):** https://github.com/santosh-sankranthi/falkordb-py
 
 Open a new issue with any real question about FalkorDB (e.g. *"How do I
@@ -32,3 +34,19 @@ graph nodes (episodes + bi-temporal facts) written by every surface and
 read by every surface. The same graph also holds the ingested code
 (`repo:falkordb-py`: files, modules, symbols, commits, authors) and the
 documentation pages — so one query can walk from doc → symbol → commit.
+
+## More to try (5 minutes)
+
+- **Memory across surfaces (the USP):** ask the console or Slack
+  *"what's the status of issue 3?"* — the answer cites the original
+  GitHub thread by URL, because `recall` matches issue/PR numbers against
+  the url recorded on each stored session.
+- **Console surfaces:** the left rail lists every session from every
+  surface (WEB / GH / SL badges) — click one for a read-only peek of the
+  stored answer, or press **File as GitHub issue** on a fresh answer to
+  bridge web → repo.
+- **Graph views** (⌘K palette or deep links): History (commit time
+  machine), Impact (blast-radius cone), Ownership (who knows what), Crew
+  (planner → investigator → verifier handoffs).
+- **Bring your own key:** Settings in the console — base URL, model, and
+  key stay in your browser; the server never stores or logs them.

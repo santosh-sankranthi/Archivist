@@ -75,7 +75,7 @@ def test_plan_action_anchors_targets(chain_repo, falkordb_or_skip, temp_graph):
 
 
 def test_list_actions_filters_by_status(chain_repo, falkordb_or_skip, temp_graph):
-    acts, rg = setup(chain_repo, falkordb_or_skip, temp_graph)
+    acts, _rg = setup(chain_repo, falkordb_or_skip, temp_graph)
     acts.plan_action("review a", type="review")
     acts.plan_action("change b", type="change")
     done = acts.plan_action("test c", type="test")

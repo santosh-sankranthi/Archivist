@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archivist — documentation</title>
+<meta name="description" content="Archivist is an engineering-intelligence agent over FalkorDB. What it is, every surface (console, GitHub, Slack, API), and a step-by-step testing guide.">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #11141a;
+    --panel-2: #151922;
+    --hairline: rgba(236, 238, 244, 0.10);
+    --hairline-soft: rgba(236, 238, 244, 0.06);
+    --text-hi: #eceef4;
+    --text-mid: #b7bdcb;
+    --text-dim: #8a92a3;
+    --amber: #e9ae58;
+    --amber-soft: rgba(233, 174, 88, 0.14);
+    --teal: #5cc9b8;
+    --teal-soft: rgba(92, 201, 184, 0.12);
+    --red: #e07a6b;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --max: 880px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-mid);
+    font: 15px/1.65 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--amber); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+  code, pre { font-family: var(--mono); }
+  code {
+    font-size: 0.92em;
+    color: var(--text-hi);
+    background: rgba(236, 238, 244, 0.07);
+    border: 1px solid var(--hairline-soft);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  pre {
+    background: #0d1017;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+    color: #d7dbe4;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+  .shell { display: flex; min-height: 100vh; }
+  aside.toc {
+    width: 260px;
+    flex: 0 0 260px;
+    border-right: 1px solid var(--hairline);
+    padding: 28px 22px 40px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--panel);
+  }
+  .toc .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .toc .brand .name { color: var(--text-hi); font-weight: 650; letter-spacing: 0.2px; }
+  .toc .brand .tag { color: var(--amber); font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; }
+  .toc .sub { color: var(--text-dim); font-size: 12.5px; margin: 0 0 20px; }
+  .toc nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 22px; }
+  .toc nav .group {
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 1.1px;
+    text-transform: uppercase;
+    margin: 14px 0 6px;
+  }
+  .toc nav a {
+    color: var(--text-mid);
+    padding: 4px 8px;
+    border-radius: 7px;
+    font-size: 13.5px;
+  }
+  .toc nav a:hover { background: var(--amber-soft); color: var(--text-hi); text-decoration: none; }
+  .toc .ext { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .toc .ext a { color: var(--text-mid); }
+  .toc .ext a:hover { color: var(--amber); }
+
+  main { flex: 1; min-width: 0; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 48px 32px 90px; }
+
+  .hero { border-bottom: 1px solid var(--hairline); padding-bottom: 28px; margin-bottom: 34px; }
+  .hero .eyebrow {
+    color: var(--amber);
+    font-size: 12px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .hero h1 { color: var(--text-hi); font-size: 34px; line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.4px; }
+  .hero p.lede { font-size: 16.5px; max-width: 660px; margin: 0 0 20px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 9px;
+    border: 1px solid var(--hairline);
+    background: var(--panel-2);
+    color: var(--text-hi);
+    font-size: 13.5px;
+  }
+  .btn:hover { border-color: var(--amber); text-decoration: none; }
+  .btn.primary { background: var(--amber); border-color: var(--amber); color: #1b1405; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.06); }
+
+  h2 { color: var(--text-hi); font-size: 24px; margin: 46px 0 12px; letter-spacing: -0.2px; scroll-margin-top: 20px; }
+  h3 { color: var(--text-hi); font-size: 17px; margin: 30px 0 8px; scroll-margin-top: 20px; }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 22px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  li::marker { color: var(--text-dim); }
+  .muted { color: var(--text-dim); font-size: 13.5px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card b { color: var(--text-hi); display: block; margin-bottom: 4px; font-size: 14.5px; }
+  .card span { font-size: 13.5px; color: var(--text-mid); }
+
+  .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 16px 0; }
+  .steps .card ol { margin: 6px 0 0; padding-left: 20px; }
+  .steps .card li { font-size: 13.5px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th {
+    text-align: left;
+    color: var(--text-hi);
+    font-weight: 600;
+    border-bottom: 1px solid var(--hairline);
+    padding: 8px 10px;
+    background: var(--panel);
+  }
+  td { border-bottom: 1px solid var(--hairline-soft); padding: 8px 10px; vertical-align: top; }
+  td code { white-space: nowrap; }
+
+  .note, .tip, .warn {
+    border: 1px solid var(--hairline);
+    border-left-width: 3px;
+    border-radius: 10px;
+    padding: 12px 15px;
+    margin: 14px 0;
+    background: var(--panel);
+    font-size: 14px;
+  }
+  .note { border-left-color: var(--text-dim); }
+  .tip { border-left-color: var(--teal); background: var(--teal-soft); }
+  .warn { border-left-color: var(--red); }
+  .note b, .tip b, .warn b { color: var(--text-hi); }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  .stat b { color: var(--text-hi); font-family: var(--mono); font-size: 15px; margin-right: 6px; }
+
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 14px 0;
+    font-size: 13.5px;
+  }
+  .flow .node {
+    border: 1px solid var(--hairline);
+    background: var(--panel-2);
+    color: var(--text-hi);
+    border-radius: 9px;
+    padding: 7px 12px;
+  }
+  .flow .arrow { color: var(--text-dim); }
+
+  .check { width: 100%; }
+  .check td:first-child { width: 26px; color: var(--teal); font-weight: 700; }
+
+  footer {
+    border-top: 1px solid var(--hairline);
+    margin-top: 60px;
+    padding-top: 22px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  footer .row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+
+  @media (max-width: 960px) {
+    aside.toc { display: none; }
+    .wrap { padding: 32px 20px 70px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="toc">
+    <div class="brand"><span class="name">Archivist</span><span class="tag">docs</span></div>
+    <p class="sub">Engineering intelligence over FalkorDB</p>
+    <nav aria-label="On this page">
+      <span class="group">Get started</span>
+      <a href="#what">What is Archivist?</a>
+      <a href="#quickstart">Try it in 3 minutes</a>
+      <span class="group">Concepts</span>
+      <a href="#graph">One graph per repo</a>
+      <a href="#agent">The agent loop</a>
+      <a href="#memory">Memory across sessions</a>
+      <span class="group">Guides</span>
+      <a href="#console">Console guide</a>
+      <a href="#github">GitHub guide</a>
+      <a href="#slack">Slack guide</a>
+      <a href="#api">API guide</a>
+      <span class="group">Evaluators</span>
+      <a href="#testing">Testing guide for judges</a>
+      <a href="#faq">Troubleshooting / FAQ</a>
+      <a href="#architecture">Under the hood</a>
+    </nav>
+    <div class="ext">
+      <span class="group" style="margin-bottom:2px">Live links</span>
+      <a href="https://figure-them-trucks-concentrate.trycloudflare.com/console/" target="_blank" rel="noreferrer">← Console ↗</a>
+      <a href="https://github.com/santosh-sankranthi/Archivist" target="_blank" rel="noreferrer">Source repository ↗</a>
+      <a href="https://github.com/santosh-sankranthi/falkordb-py" target="_blank" rel="noreferrer">GitHub demo fork ↗</a>
+      <a href="https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ" target="_blank" rel="noreferrer">Slack workspace ↗</a>
+    </div>
+  </aside>
+
+  <main>
+  <div class="wrap">
+
+    <header class="hero">
+      <div class="eyebrow">Documentation</div>
+      <h1>Ask your repository anything — on the web, GitHub, or Slack. It remembers.</h1>
+      <p class="lede">
+        Archivist turns a codebase and its history into a living FalkorDB graph, then answers
+        multi-hop engineering questions with traceable reasoning: every claim cites code,
+        commits, or documents — and every answer is stored in the same graph, so
+        <em>the next session, on any surface, can recall it</em>.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://figure-them-trucks-concentrate.trycloudflare.com/console/" target="_blank" rel="noreferrer">Open the live console</a>
+        <a class="btn" href="#testing">Testing guide for judges</a>
+        <a class="btn" href="https://github.com/santosh-sankranthi/Archivist" target="_blank" rel="noreferrer">View source</a>
+      </div>
+    </header>
+
+    <section id="what">
+      <h2>What is Archivist?</h2>
+      <p>
+        Archivist is an <b>engineering-intelligence agent</b>. Point it at a repository and it
+        ingests the code, the git history, and the project documentation into one FalkorDB
+        graph. A tool-calling agent then answers questions <i>about that repository</i> by
+        querying the graph — call chains, churn, ownership, archaeology, docs — and posts the
+        answer wherever you work: a web console, a GitHub issue, a Slack thread.
+      </p>
+      <div class="cards">
+        <div class="card"><b>Grounded answers, never guesses</b><span>Every answer cites files, symbols, line numbers, commits, and doc sections. When evidence is weak or missing, it says so.</span></div>
+        <div class="card"><b>Cross-session memory</b><span>Answers become graph nodes. Reference an earlier issue or discussion on any surface — it recalls it, with the original link.</span></div>
+        <div class="card"><b>Three surfaces, one brain</b><span>Console, GitHub issues, and Slack mention/DMs run the same agent, the same tools, the same graph, the same memory.</span></div>
+        <div class="card"><b>Graph-native</b><span>Impact analysis, dependency walks, shortest call paths, ownership, time-machine history — real Cypher, shown with every answer.</span></div>
+        <div class="card"><b>Bring your own model</b><span>Any OpenAI-compatible endpoint (OpenAI, OpenRouter, vLLM, OpenCode Zen…). Keys can stay in your browser; the server never logs them.</span></div>
+        <div class="card"><b>Auditable by design</b><span>Read-only queries only, idempotent writes, guesses flagged — and the full trace (tools + Cypher) for everything it claims.</span></div>
+      </div>
+      <div class="stats">
+        <span class="stat"><b>509</b> commits</span>
+        <span class="stat"><b>88</b> files</span>
+        <span class="stat"><b>426</b> symbols</span>
+        <span class="stat"><b>1,541</b> doc sections</span>
+        <span class="stat"><b>56</b> modules</span>
+        <span class="stat"><b>21</b> authors</span>
+        <span class="stat muted">— live counts from the demo graph (<code>repo:falkordb-py</code>)</span>
+      </div>
+      <p class="muted">
+        The demo graph is the <a href="https://github.com/santosh-sankranthi/falkordb-py" target="_blank" rel="noreferrer">falkordb-py</a>
+        Python client — a real repository with real history. Archivist ships as a general
+        pipeline (<code>scripts/ingest.py</code> accepts any checkout).
+      </p>
+    </section>
+
+    <section id="quickstart">
+      <h2>Try it in 3 minutes</h2>
+      <p>Pick any of the three doors. They all talk to the same brain, and everything you do is remembered in the same graph.</p>
+      <div class="steps">
+        <div class="card">
+          <b>1 · Web console</b>
+          <ol>
+            <li>Open the <a href="https://figure-them-trucks-concentrate.trycloudflare.com/console/" target="_blank" rel="noreferrer">live console</a>.</li>
+            <li>Ask: <i>“How do I create a vector index?”</i> — watch the live step feed, then the answer with citations.</li>
+            <li>Click any session in the left rail to re-open it read-only from memory.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <b>2 · GitHub issues</b>
+          <ol>
+            <li>Open the <a href="https://github.com/santosh-sankranthi/falkordb-py" target="_blank" rel="noreferrer">demo fork</a> → <b>Issues</b> → <b>New issue</b>.</li>
+            <li>Ask a real question about the repo (e.g. <i>“Where is the query timeout enforced?”</i>).</li>
+            <li>Within ~1–2 minutes the agent replies on your thread — with file/symbol citations, and labels if it's a bug report.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <b>3 · Slack</b>
+          <ol>
+            <li>Join the <a href="https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ" target="_blank" rel="noreferrer">workspace</a>.</li>
+            <li>In a channel, run <code>/invite @archivist</code> — then <code>@archivist how do I create a vector index?</code> (DMs work too).</li>
+            <li>The answer lands in-thread in ~1–2 minutes — and it's stored in the shared memory.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="tip"><b>The party trick:</b> once something has been asked anywhere — a GitHub issue, a Slack thread, a console session — ask any other surface about it by topic or issue number (“what's the status of issue 3?”). It answers from memory and links the original thread.</div>
+    </section>
+
+    <section id="graph">
+      <h2>Core concepts · One graph per repo</h2>
+      <p>
+        Everything Archivist knows lives as nodes and edges in FalkorDB. The same graph holds
+        three kinds of knowledge — and every answer is a read-only Cypher query over it
+        (<code>GRAPH.RO_QUERY</code> is enforced by the database, not by convention).
+      </p>
+      <table>
+        <tr><th>Knowledge</th><th>Nodes</th><th>Answers questions like…</th></tr>
+        <tr>
+          <td><b>Code &amp; history</b></td>
+          <td><code>Repo</code> · <code>Commit</code> · <code>Author</code> · <code>File</code> · <code>Symbol</code> · <code>Module</code><br><span class="muted">edges: <code>DEFINES</code>, <code>CALLS</code>, <code>IMPORTS</code>, <code>MODIFIED</code>, <code>AUTHORED</code>, <code>PARENT</code>, <code>HEAD</code></span></td>
+          <td>Who calls this? What breaks if it changes? Who should review it? When did it last change, and why?</td>
+        </tr>
+        <tr>
+          <td><b>Documentation</b></td>
+          <td><code>DocPage</code> <span class="muted">(1,541 ingested sections for the demo graph)</span></td>
+          <td>What do the docs say about vector indexes, configuration, clients…?</td>
+        </tr>
+        <tr>
+          <td><b>Memory</b></td>
+          <td><code>Episode</code> · <code>Fact</code><br><span class="muted">edges: <code>PRODUCED</code>, <code>ABOUT</code>, <code>SUPERSEDES</code>, <code>HANDOFF</code></span></td>
+          <td>What did we discuss before? What was concluded about this file? What's the status of issue 3?</td>
+        </tr>
+      </table>
+      <p class="muted">
+        Design rules: every write is an idempotent <code>MERGE</code> (re-ingest converges, never
+        duplicates) · best-effort <code>CALLS</code> edges are flagged <code>weak</code> and excluded
+        by default <i>with the filtered count reported</i> · memory is append-only — a contradicted
+        fact closes its validity window and links its replacement, it is never deleted.
+      </p>
+    </section>
+
+    <section id="agent">
+      <h2>Core concepts · The agent loop</h2>
+      <p>
+        The agent is deliberately thin: the model chooses <b>tools</b>, the tools run as
+        read-only Cypher, and compact result envelopes go back to the model until it answers.
+        The full trace — every tool call, every query, every timing — is kept on the answer, and
+        the console replays it on the graph canvas as an induced subgraph.
+      </p>
+      <table>
+        <tr><th>Tool</th><th>What it reads</th><th>Use it for</th></tr>
+        <tr><td><code>overview</code></td><td>repo counts + hubs</td><td>orientation — what's in this repo?</td></tr>
+        <tr><td><code>find_symbols</code></td><td>symbols by name</td><td>“where is X defined?”</td></tr>
+        <tr><td><code>callers</code> · <code>callees</code></td><td>bounded call-chain walks</td><td>impact analysis / dependencies</td></tr>
+        <tr><td><code>importers</code></td><td>module import edges</td><td>“which modules depend on flask.ctx?”</td></tr>
+        <tr><td><code>file_history</code></td><td>commit ↔ file churn</td><td>“how has this file evolved?”</td></tr>
+        <tr><td><code>owners</code></td><td>authorship over diffs</td><td>“who should review this?”</td></tr>
+        <tr><td><code>search_commits</code></td><td>commit messages</td><td>archaeology — “why does this exist?”</td></tr>
+        <tr><td><code>search_docs</code></td><td>ingested documentation</td><td>“what do the docs say?”</td></tr>
+        <tr><td><code>recall</code></td><td>episodes + facts (memory)</td><td>“what did we discuss before?” / issue numbers</td></tr>
+        <tr><td><code>remember</code></td><td>— (writes a fact)</td><td>durable findings, anchored to symbols/files/commits</td></tr>
+        <tr><td><code>act</code></td><td>— (writes a next step)</td><td>proposed review / change / test actions, tracked in Memory</td></tr>
+        <tr><td><code>query</code></td><td>read-only Cypher escape hatch</td><td>anything the fixed tools don't cover</td></tr>
+      </table>
+      <div class="note"><b>Honesty contract:</b> answers must be built from tool results only. Weak (guessed) call edges are off by default and counted when filtered; unresolved anchors and caps are reported in the result envelopes; if the graph can't answer, the agent says what's missing instead of improvising.</div>
+    </section>
+
+    <section id="memory">
+      <h2>Core concepts · Memory across sessions</h2>
+      <p>
+        This is the part that makes Archivist more than a chatbot: <b>every session on every
+        surface is recorded into the graph</b>, and later sessions can recall it.
+      </p>
+      <ul>
+        <li><b>Episodes</b> — one node per session: the question and the stored answer, tagged by surface (<code>agent-session</code> from the console, <code>github-answer</code> from issues — carrying the issue's URL — <code>slack-answer</code> from Slack, plus ingest runs and crew phases).</li>
+        <li><b>Facts</b> — durable findings the agent chose to keep, with <b>bi-temporal windows</b>: “true now”, full history, or “what was true at time T”.</li>
+        <li><b>Recall</b> matches your question by <b>keyword tokens</b> and by <b>issue/PR numbers</b> (“issue 3”, “#3”, “pull request 7” — typo-tolerant), resolving numbers against the original session's URL. Results are ranked by match strength and carry the source link.</li>
+      </ul>
+      <div class="tip"><b>Recipe — watch the USP in action:</b> ask something on the GitHub fork (or use an existing thread like issue 3, “Feature request: list indexes from the Python client”). Then ask the console or Slack: <i>“what's the status of issue 3?”</i> — the answer cites the original GitHub thread by URL, plus what the code says today. That's the same graph reading, not a cached chat.</div>
+      <p class="muted">The console's <b>Memory</b> view is the ledger: every episode from every surface, facts with their validity windows, and proposed actions — all browsable.</p>
+    </section>
+
+    <section id="console">
+      <h2>Console guide</h2>
+      <p>
+        The console is the product's face — a React app served by the same box as the API.
+        Base URL: <code>/console/</code>. Anonymous visitors get a fair-use quota on the demo
+        key; bring your own key for unlimited use (Settings — it stays in your browser).
+      </p>
+      <table>
+        <tr><th>View</th><th>What it does</th><th>Try this</th></tr>
+        <tr><td><b>Ask</b></td><td>Live ask room: steps stream in as the agent works (tool, params, rows, ms), then the token-by-token answer, with the trace ribbon of every query.</td><td>“Who calls <code>Graph.query</code> and how deep does the chain go?”</td></tr>
+        <tr><td><b>Explorer</b></td><td>Search files &amp; symbols, drill module → file → symbol, caller/callee neighbourhoods, directed call-path finder, weak-edge filter.</td><td>Search <code>list_indices</code>, then walk its callers.</td></tr>
+        <tr><td><b>Memory</b></td><td>The cross-session ledger: episodes from all surfaces, bi-temporal facts, and action items with done/superseded controls.</td><td>Find the session where the agent answered about <code>efRuntime</code>.</td></tr>
+        <tr><td><b>Sessions rail</b></td><td>Every stored session (WEB / GH / SL badges). Click one for a read-only peek — stored answer, meta, “Ask again”.</td><td>Open the oldest Slack session.</td></tr>
+        <tr><td><b>History</b> <span class="muted">(palette / deep link)</span></td><td>Commit time machine — month buckets, a window scrubber, top files per window.</td><td>Jump to the release month of the repo.</td></tr>
+        <tr><td><b>Impact</b> <span class="muted">(palette / deep link)</span></td><td>Blast-radius cone: everything that (transitively) calls a symbol, rolled up per file.</td><td>Blast radius of <code>QueryResult.__parse_records</code>.</td></tr>
+        <tr><td><b>Ownership</b> <span class="muted">(palette / deep link)</span></td><td>Who knows what: author mixes per file, single-owner watch list, per-file reviewers.</td><td>Who owns <code>falkordb/graph.py</code>?</td></tr>
+        <tr><td><b>Crew</b> <span class="muted">(palette / deep link)</span></td><td>Planner → investigator → verifier runs: each phase's answer and the handoff chain, stored as graph edges.</td><td>Run a crew question from <code>scripts/crew.py</code> and watch the phases.</td></tr>
+        <tr><td><b>⌘K palette</b></td><td>Command palette: views, files, symbols, quick navigation.</td><td>Press <code>Ctrl/⌘ K</code> anywhere.</td></tr>
+      </table>
+      <div class="note"><b>Reading an answer:</b> citations are inline — <code>falkordb/graph.py:435</code>, commit SHAs, doc URLs. The trace ribbon shows exactly which tool ran and over what. If the run is still working, you'll see live steps — long answers take 30–90&nbsp;s against the free demo model; the feed proves it's alive.</div>
+    </section>
+
+    <section id="github">
+      <h2>GitHub guide</h2>
+      <p>
+        The demo repository is a <b>fork</b> (<a href="https://github.com/santosh-sankranthi/falkordb-py" target="_blank" rel="noreferrer">santosh-sankranthi/falkordb-py</a>)
+        with the Archivist GitHub App installed. Open an issue there with any real question
+        about the repo:
+      </p>
+      <ul>
+        <li><b>Question</b> → a grounded answer comment on the thread (file/symbol/doc citations).</li>
+        <li><b>Bug report</b> → triage labels + a missing-information checklist where relevant.</li>
+        <li><b>First-time author</b> → a short welcome, recorded as a <code>gh-first-seen</code> episode (so later sessions know the person is new).</li>
+      </ul>
+      <p>Two more paths into the repository:</p>
+      <ul>
+        <li><b>From the console:</b> press <b>“File as GitHub issue”</b> on any answer — the question lands on the fork as a real issue, and the agent replies on the thread. The web surface <i>acting</i> on the repository.</li>
+        <li><b>Existing threads:</b> issues #1–#6 are previous live runs — read them to see the answer style, then ask your own.</li>
+      </ul>
+      <div class="note"><b>Timing:</b> webhook → answer comment typically within 1–2 minutes. The answer is also stored as a <code>github-answer</code> episode with the issue URL — which is what makes issue-number recall work elsewhere.</div>
+    </section>
+
+    <section id="slack">
+      <h2>Slack guide</h2>
+      <ol>
+        <li>Join the workspace: <a href="https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ" target="_blank" rel="noreferrer">shared invite ↗</a></li>
+        <li>In the channel you want to use, run <code>/invite @archivist</code> (the app must be a member to see mentions).</li>
+        <li>Mention it: <code>@archivist how do I create a vector index, and when should I use one?</code> — or simply DM the app.</li>
+      </ol>
+      <p>
+        The reply lands as a thread under your message — same brain, same citations, same
+        memory footer (“grounded in the FalkorDB graph — same memory as the GitHub surface”).
+        Slack answers are stored as <code>slack-answer</code> episodes, so they're recallable
+        from the console and from later Slack threads.
+      </p>
+      <div class="tip"><b>Try the loop:</b> ask in Slack about an issue number that GitHub already answered — e.g. <i>“hey, what's the status of issue 3?”</i> — the reply cites the original GitHub thread URL and what the code says today.</div>
+    </section>
+
+    <section id="api">
+      <h2>API guide</h2>
+      <p>The console is a client of a small HTTP API served by the same box. Everything the UI does, you can do with curl.</p>
+      <pre><code># ask the agent (JSON: answer + full trace)
+curl -s -X POST https://figure-them-trucks-concentrate.trycloudflare.com/api/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "Who calls Graph.query?"}' | head -c 800
+
+# stream it (Server-Sent Events: step_start / step_result / answer_delta / done)
+curl -N -X POST https://figure-them-trucks-concentrate.trycloudflare.com/api/ask/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "What breaks if QueryResult._parse_records changes?"}'</code></pre>
+      <table>
+        <tr><th>Endpoint</th><th>What it returns</th></tr>
+        <tr><td><code>GET /console/</code></td><td>the console app</td></tr>
+        <tr><td><code>GET /docs</code></td><td>this guide</td></tr>
+        <tr><td><code>GET /api/state</code></td><td>graph counts, memory summary, LLM status</td></tr>
+        <tr><td><code>GET /api/graph/overview|activity|find|file|module|symbol|path|history|impact|ownership</code></td><td>graph projections (hubs, commits, search, call walks, time machine, blast radius, ownership)</td></tr>
+        <tr><td><code>GET /api/graph/memory|actions|crew</code></td><td>episodes + facts, proposed actions, crew runs with handoffs</td></tr>
+        <tr><td><code>POST /api/ask</code> · <code>POST /api/ask/stream</code></td><td>run the agent (JSON or SSE) with the full trace</td></tr>
+        <tr><td><code>POST /api/cypher</code></td><td>read-only Cypher escape hatch (writes are refused by the database)</td></tr>
+        <tr><td><code>POST /api/graph/induced</code></td><td>induced subgraph of a step's evidence refs</td></tr>
+        <tr><td><code>GET /api/me</code> · <code>POST /api/auth/*</code></td><td>optional accounts</td></tr>
+        <tr><td><code>POST /github/webhook</code> · <code>POST /slack/events</code></td><td>the GitHub / Slack adapters (signature-verified)</td></tr>
+      </table>
+      <h3>Bring your own LLM key</h3>
+      <p>Override the server's model per request with headers — the server never stores or logs them:</p>
+      <pre><code>curl -s -X POST .../api/ask \
+  -H 'Content-Type: application/json' \
+  -H 'X-Archivist-LLM-Base: https://openrouter.ai/api/v1' \
+  -H 'X-Archivist-LLM-Model: your-model' \
+  -H 'X-Archivist-LLM-Key: sk-...' \
+  -d '{"question": "..."}'</code></pre>
+      <div class="note">Demo-key asks are capped per client per hour (<code>429</code> past the cap, with a hint to bring a key). Responses are bounded and the server limits concurrent work, so a burst of stalled connections can't take the box down.</div>
+    </section>
+
+    <section id="testing">
+      <h2>Testing guide for judges</h2>
+      <p>
+        Everything below is testable live, in order. Times assume the free demo model; the
+        console's step feed shows progress while you wait. Total: ~10 minutes for the full
+        pass, ~3 for the essentials (steps 1, 4, 6).
+      </p>
+
+      <h3>1 · Console — ask, watch, verify <span class="muted">(~2 min)</span></h3>
+      <ol>
+        <li>Open <a href="https://figure-them-trucks-concentrate.trycloudflare.com/console/" target="_blank" rel="noreferrer">/console/</a> and ask: <i>“How do I create a vector index, and when should I use one?”</i></li>
+        <li><b>Expect:</b> live step cards (tool name, args, rows, ms) → a streaming answer with inline citations → a trace ribbon of the Cypher that ran.</li>
+        <li>Click a session in the left rail → a read-only peek opens with the stored answer (including sessions from GitHub/Slack — the badges tell you which surface).</li>
+      </ol>
+
+      <h3>2 · Explorer — the graph under the answers <span class="muted">(~1 min)</span></h3>
+      <ol>
+        <li>Search <code>list_indices</code> → open the symbol in Explorer.</li>
+        <li><b>Expect:</b> callers/callees with counts, weak guesses excluded (and reported); run the path finder between two symbols.</li>
+      </ol>
+
+      <h3>3 · Memory — the ledger <span class="muted">(~1 min)</span></h3>
+      <ol>
+        <li>Open <b>Memory</b>. <b>Expect:</b> your console ask from step 1 listed as an <code>agent-session</code>; earlier <code>github-answer</code> and <code>slack-answer</code> sessions too.</li>
+        <li>Look at <b>Actions</b>: proposed next steps from past runs, with done/superseded controls (bi-temporal — closing is never deleting).</li>
+      </ol>
+
+      <h3>4 · GitHub — real issues, real answers <span class="muted">(~2 min)</span></h3>
+      <ol>
+        <li>On the <a href="https://github.com/santosh-sankranthi/falkordb-py/issues" target="_blank" rel="noreferrer">demo fork</a>, open a new issue asking a real question (or read issues #1–#6 for prior live runs).</li>
+        <li><b>Expect:</b> an answer comment within ~1–2 min — cited to files/symbols/docs; bug reports get triage labels.</li>
+      </ol>
+
+      <h3>5 · Slack — the same brain in a thread <span class="muted">(~2 min)</span></h3>
+      <ol>
+        <li>Join via the <a href="https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ" target="_blank" rel="noreferrer">invite</a>, <code>/invite @archivist</code> in a channel, then mention it with a question.</li>
+        <li><b>Expect:</b> threaded answer in ~1–2 min, footer confirming shared memory.</li>
+      </ol>
+
+      <h3>6 · Cross-session memory — the USP <span class="muted">(~1 min, no waiting)</span></h3>
+      <ol>
+        <li>Ask the console (or Slack, or the API): <i>“what's the status of issue 3?”</i></li>
+        <li><b>Expect:</b> an answer citing the original GitHub thread URL (<code>…/issues/3</code>) — recalled from the graph by issue number, not appended by hand.</li>
+        <li>Optional: ask something new in Slack, then find that session in the console's left rail — every surface writes to the same memory.</li>
+      </ol>
+
+      <h3>7 · API — verify the machine <span class="muted">(~1 min)</span></h3>
+      <pre><code>curl -s https://figure-them-trucks-concentrate.trycloudflare.com/api/state | head -c 400
+curl -N -X POST https://figure-them-trucks-concentrate.trycloudflare.com/api/ask/stream \
+  -H 'Content-Type: application/json' -d '{"question": "What is the blast radius of Graph.query?"}'</code></pre>
+
+      <h3>Checklist</h3>
+      <table class="check">
+        <tr><td>✓</td><td>Console answers with live steps + citations + trace ribbon</td></tr>
+        <tr><td>✓</td><td>Session rail shows sessions from all three surfaces and re-opens them read-only</td></tr>
+        <tr><td>✓</td><td>Explorer drill-down, call neighbourhoods, path finder work (no LLM key needed)</td></tr>
+        <tr><td>✓</td><td>Memory lists your new session; Actions supports done / superseded</td></tr>
+        <tr><td>✓</td><td>GitHub issue → cited answer comment (and labels for bug reports)</td></tr>
+        <tr><td>✓</td><td>Slack mention/DM → threaded answer</td></tr>
+        <tr><td>✓</td><td>Issue-number recall across surfaces (issue 3 recipe)</td></tr>
+        <tr><td>✓</td><td>API: <code>/api/state</code> returns live counts; <code>/api/ask/stream</code> emits SSE frames</td></tr>
+      </table>
+
+      <h3>More questions that show off the graph</h3>
+      <table>
+        <tr><th>Ask</th><th>What it exercises</th></tr>
+        <tr><td>Who calls <code>Graph.query</code>, and how deep does the chain go?</td><td>call walks + depth bounds</td></tr>
+        <tr><td>What breaks if I change <code>QueryResult.__parse_records</code>?</td><td>reverse-CALLS blast radius, weak filtering</td></tr>
+        <tr><td>Who knows <code>falkordb/graph.py</code> best?</td><td>ownership over diff history</td></tr>
+        <tr><td>When did sentinel support land, and what changed?</td><td>commit archaeology + file history</td></tr>
+        <tr><td>Explain the efRuntime parameter and when to set it.</td><td>docs ingestion + code cross-check</td></tr>
+      </table>
+    </section>
+
+    <section id="faq">
+      <h2>Troubleshooting / FAQ</h2>
+      <h3>The Ask room says asking is disabled / HTTP 503</h3>
+      <p>The box runs without a server-side model key in that case — the explorer stays fully live. Open <b>Settings</b> in the console and bring your own OpenAI-compatible key (it's kept in your browser and sent per request only).</p>
+      <h3>HTTP 429 when asking</h3>
+      <p>You hit the per-client demo-key quota. Either wait for the hourly window or bring your own key in Settings — unlimited and private.</p>
+      <h3>The Slack bot didn't answer</h3>
+      <ul>
+        <li>In channels it only reacts to an explicit <code>@archivist</code> mention — plain messages are ignored by design.</li>
+        <li>The app must be in the channel: run <code>/invite @archivist</code>.</li>
+        <li>DMs work with any message (no mention needed). Give it up to ~2 minutes.</li>
+      </ul>
+      <h3>The GitHub comment didn't appear</h3>
+      <p>Make sure the issue is on the <b>fork</b> (<code>santosh-sankranthi/falkordb-py</code>) — that's where the app is installed. Give it ~2 minutes; the webhook is verified and signature-checked (deliveries show <code>202</code>).</p>
+      <h3>An answer says “cannot determine” / “unknown”</h3>
+      <p>That's the honesty policy, not a failure: weak call edges are excluded (the filtered count is reported), unresolved anchors are surfaced, and the agent is instructed to state what's missing instead of guessing. It's part of why the answers you <i>do</i> get are trustworthy.</p>
+      <h3>Answers take 30–90 seconds</h3>
+      <p>Real multi-step tool calling over a live graph on a free demo model — the console streams every step so you can watch it work. On your own key/model it's as fast as your model.</p>
+      <h3>Where is the memory stored? Can I inspect it?</h3>
+      <p>In the same FalkorDB graph as the code. <code>GET /api/graph/memory</code> returns the full timeline; the console's Memory view renders it; <code>POST /api/cypher</code> lets you query it read-only yourself.</p>
+      <h3>Can I run Archivist on my own repository?</h3>
+      <p>Yes — see the <a href="https://github.com/santosh-sankranthi/Archivist" target="_blank" rel="noreferrer">README</a>: Docker Compose (FalkorDB + console), <code>scripts/ingest.py</code> accepts any checkout, and the GitHub/Slack adapters are environment-configured.</p>
+    </section>
+
+    <section id="architecture">
+      <h2>Under the hood</h2>
+      <div class="flow">
+        <span class="node">repo + docs + history</span><span class="arrow">→</span>
+        <span class="node">ingest (idempotent)</span><span class="arrow">→</span>
+        <span class="node">FalkorDB graph</span><span class="arrow">→</span>
+        <span class="node">agent loop (read-only tools)</span><span class="arrow">→</span>
+        <span class="node">console · GitHub · Slack · API</span>
+      </div>
+      <ul>
+        <li><b>Ingest</b> (<code>src/archivist/ingest.py</code>) walks the git history and source tree, resolves call edges by name with layered confidence (rings), ingests documentation pages, and ensures lookup indexes. Re-runs converge.</li>
+        <li><b>The agent</b> (<code>src/archivist/agent.py</code>) is a thin, auditable loop: model → tool calls → compact envelopes → final answer, with the full trace preserved. Memory tools (recall/remember/act) share the same graph.</li>
+        <li><b>Surfaces</b> all run the same runner: the stdlib webapp serves the console + API + webhooks; the Slack and GitHub adapters hand questions to the same core and post answers back. One brain, three doors.</li>
+        <li><b>Crew mode</b> (planner → investigator → verifier) enforces tool scopes per role and records phase handoffs as graph edges — the coordination history is queryable like everything else.</li>
+        <li><b>Deploys</b> run through a self-hosted CI on the same box: pytest + console tests gate the deploy, the console is rebuilt when it changes, the service restarts, and a smoke test must pass before the deploy is reported.</li>
+      </ul>
+      <div class="note"><b>Known limits, stated plainly:</b> the demo runs a free model (answer quality varies; retries on empty finalizations) · resolver-heavy anchors can plan as scans on FalkorDB today (index-shape tuning is logged work) · the console's demo key is quota-limited by design. The full honest ledger lives in the README and <code>docs/graph-model.md</code>.</div>
+      <p class="muted">Built for <b>Graph Hacks 2026</b> (WeMakeDevs × FalkorDB), Oct 15–18 window. Developed with AI coding assistants; design direction, review, and final verification by the submitter (per event rules).</p>
+    </section>
+
+    <footer>
+      <div><b style="color:var(--text-hi)">Archivist</b> — engineering intelligence over FalkorDB. This page is served from <code>docs/guide.html</code> in the source repository and updates with each deploy.</div>
+      <div class="row">
+        <a href="https://figure-them-trucks-concentrate.trycloudflare.com/console/" target="_blank" rel="noreferrer">Console</a>
+        <a href="https://github.com/santosh-sankranthi/Archivist" target="_blank" rel="noreferrer">Repository</a>
+        <a href="https://github.com/santosh-sankranthi/falkordb-py" target="_blank" rel="noreferrer">Demo fork</a>
+        <a href="https://join.slack.com/t/demoworkspace-gam4651/shared_invite/zt-4dwhz22o0-5JfcMZ_qpBTN7aigAsvvkQ" target="_blank" rel="noreferrer">Slack</a>
+        <a href="/console/">← Back to the console</a>
+      </div>
+    </footer>
+
+  </div>
+  </main>
+</div>
+</body>
+</html>

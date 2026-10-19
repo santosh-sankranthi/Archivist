@@ -14,6 +14,9 @@ Endpoints:
     GET  /                     static console (index.html)
     GET  /static/<path>        static assets (css/js/vendor)
     GET  /console/             Console v2 — the built Vite app (console/dist)
+    GET  /docs                 reader guide: what Archivist is, per-surface
+                               guides, and the judge walkthrough
+                               (``docs/guide.html``, sane in any text editor)
     GET  /api/state            graph + memory summary + LLM status
     GET  /api/graph/overview   hubs: most-called symbols, most-imported modules
     GET  /api/graph/activity   recent commits (sha, ts, summary, author, files)
@@ -856,6 +859,8 @@ class WebApp:
                     return self._static(path[len("/static/") :])
                 if path == "/console" or path.startswith("/console/"):
                     return self._console(path[len("/console") :])
+                if path in ("/docs", "/docs/"):
+                    return self._docs()
                 if path == "/api/state":
                     return self._json(200, self._state())
                 if path == "/api/graph/overview":
@@ -980,6 +985,18 @@ class WebApp:
         if Path(rel).suffix:
             raise ApiError(404, f"no console asset {rel}")
         return 200, _CONTENT_TYPES[".html"], index.read_bytes()
+
+    def _docs(self) -> tuple[int, str, bytes]:
+        """Serve the reader guide at ``/docs`` (source: ``docs/guide.html``).
+
+        Same honesty rule as every surface here: the guide is a repo file
+        served as-is — missing on disk is a 404 that says so, never an
+        empty page.
+        """
+        path = Path(__file__).resolve().parents[2] / "docs" / "guide.html"
+        if not path.is_file():
+            raise ApiError(404, "docs not found on this box (docs/guide.html)")
+        return 200, _CONTENT_TYPES[".html"], path.read_bytes()
 
     # -- GET handlers ------------------------------------------------------
 

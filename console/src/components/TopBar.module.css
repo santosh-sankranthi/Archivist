@@ -75,6 +75,20 @@
   border-color: var(--amber);
 }
 
+/* The guide link keeps the chip silhouette but reads as a door, not a
+   readout: same amber hover as the account chip. */
+.docs {
+  composes: chip;
+  text-decoration: none;
+  color: var(--text-hi);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+.docs:hover {
+  color: var(--text-hi);
+  border-color: var(--amber);
+}
+
 .person {
   color: var(--amber);
   flex: none;

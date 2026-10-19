@@ -113,6 +113,15 @@ export function TopBar({ state, minimal = false, onOpenPalette, onOpenSettings }
           </button>
         ) : null}
 
+        <a
+          className={styles.docs}
+          href="/docs"
+          target="_blank"
+          rel="noreferrer"
+          title="Reader guide — what Archivist is, every surface, and how to test it"
+        >
+          docs ↗
+        </a>
         <button
           type="button"
           className={styles.kbd}

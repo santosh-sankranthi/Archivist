@@ -92,6 +92,10 @@ export function SessionRail() {
 
       {/* Rail foot: real buttons, not footnote links. */}
       <div className={styles.foot}>
+        {/* docsFoot: the guide is a door out of the app, not a route */}
+        <a href="/docs" target="_blank" rel="noreferrer">
+          Docs
+        </a>
         <a href={href("/explorer")} onClick={onNav("/explorer")}>
           Explorer
         </a>

@@ -3,6 +3,7 @@
 **Graph Hacks 2026 submission (WeMakeDevs × FalkorDB) — work in progress.**
 
 **Live demo:** https://figure-them-trucks-concentrate.trycloudflare.com/console
+**Reader guide:** https://figure-them-trucks-concentrate.trycloudflare.com/docs — what it is, every surface, and a step-by-step testing walkthrough for judges (source: [`docs/guide.html`](docs/guide.html), linked from the console top bar).
 
 An engineering-intelligence agent with FalkorDB as its context layer: it turns
 a codebase + its git history into a living graph, answers multi-hop questions
@@ -339,5 +340,7 @@ verification by the submitter. (Disclosed per the event rules.)
 
 ## For judges
 
-How to test the live agent in 3 minutes: see [JUDGES.md](JUDGES.md).
+How to test every surface, with expected results: the live
+**[reader guide](https://figure-them-trucks-concentrate.trycloudflare.com/docs)**
+(also linked from the console top bar). The 3-minute version: [JUDGES.md](JUDGES.md).
 Full submission summary: [SUBMISSION.md](SUBMISSION.md).
