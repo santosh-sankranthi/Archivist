@@ -88,7 +88,7 @@ def run_landing(page: Page, base: str, out: Path) -> None:
 def run_home(page: Page, base: str, out: Path) -> None:
     """00: overview — hero ask line, live stat strip, hubs, starters."""
     page.goto(f"{base}/console/overview", wait_until="load")
-    page.get_by_text("url_for changes", exact=False).first.wait_for(timeout=20000)
+    page.get_by_text("ask", exact=False).first.wait_for(timeout=20000)
     page.wait_for_timeout(700)
     shot(page, out, "00-home")
 
@@ -176,7 +176,7 @@ def run_ask(page: Page, base: str, out: Path) -> None:
 def run_palette(page: Page, base: str, out: Path) -> None:
     """06: ⌘K palette — live symbol results, plus a keyboard-drive check."""
     page.goto(f"{base}/console/overview", wait_until="load")
-    page.get_by_text("url_for changes", exact=False).first.wait_for(timeout=20000)
+    page.get_by_text("ask", exact=False).first.wait_for(timeout=20000)
     page.keyboard.press("Control+k")
     palette_input = page.get_by_role("combobox")
     palette_input.wait_for(timeout=10000)

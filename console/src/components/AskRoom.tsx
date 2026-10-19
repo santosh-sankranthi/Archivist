@@ -10,7 +10,7 @@
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, postJSON, postSSE } from "../lib/api";
+import { ApiError, postJSON, postSSE, useApi } from "../lib/api";
 import { formatInt } from "../lib/format";
 import {
   getLLMKey,
@@ -28,7 +28,7 @@ import {
   type ReplayBundle,
   type StepReplay,
 } from "../lib/trace";
-import type { AskResponse, InducedResponse } from "../lib/types";
+import type { ActionItem, ActionsResponse, AskResponse, InducedResponse } from "../lib/types";
 import { GraphCanvas } from "./GraphCanvas";
 import { Orb } from "./Orb";
 import { TraceDetail } from "./TraceDetail";
@@ -179,6 +179,7 @@ export function AskRoom({
   // Inline "bring a key" affordance (audit #1/#3): a keyless visitor fills
   // base/model/key right in the refused-ask card instead of being pointed at
   // a sysadmin env-var error. It seeds from the saved Settings value.
+  const actions = useApi<ActionsResponse>("/api/graph/actions");
   const [inlineKey, setInlineKey] = useState<LLMKeySettings>(() => getLLMKey());
   const [inlineSaved, setInlineSaved] = useState(false);
 
@@ -697,91 +698,102 @@ export function AskRoom({
             ) : null}
 
             {turn.phase.kind === "done" ? (
-              <>
-                <div className={styles.buddyAnswer}>
-                  <Orb size="sm" />
-                  <div className={styles.answer}>
-                    <p className={styles.answerText}>{turn.phase.data.answer.text}</p>
-                  </div>
-                </div>
-                <TraceRibbon
-                  steps={turn.phase.data.answer.steps}
-                  active={activeIndex}
-                  onPick={(stepIndex) => pick(turn.id, stepIndex)}
-                />
-                <div className={styles.metaRow}>
-                  <span>
-                    {turn.phase.data.answer.steps.length} step
-                    {turn.phase.data.answer.steps.length === 1 ? "" : "s"} ·{" "}
-                    {turn.phase.data.answer.llm_calls} llm call
-                    {turn.phase.data.answer.llm_calls === 1 ? "" : "s"}
-                    {turn.phase.data.answer.partial ? " · partial" : ""}
-                  </span>
-                  <span
-                    className={
-                      turn.remembered && turn.phase.data.episode_id
-                        ? styles.memSaved
-                        : styles.memOff
-                    }
-                    title={turn.phase.data.episode_id ?? undefined}
-                  >
-                    {turn.remembered
-                      ? turn.phase.data.episode_id
-                        ? "remembered"
-                        : "not saved"
-                      : "not remembered"}
-                  </span>
-                </div>
-                <div className={styles.fileRow}>
-                  {turn.filed.kind === "done" ? (
-                    <a
-                      className={styles.filedLink}
-                      href={turn.filed.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      filed as #{turn.filed.number} on GitHub ↗
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.fileBtn}
-                      disabled={turn.filed.kind === "busy"}
-                      onClick={() => {
-                        if (turn.phase.kind !== "done") return;
-                        void fileIssue(turn.id, turn.question, turn.phase.data.answer.text);
-                      }}
-                    >
-                      {turn.filed.kind === "busy" ? "filing…" : "File as GitHub issue"}
-                    </button>
-                  )}
-                  {turn.filed.kind === "error" ? (
-                    <span className={styles.fileError}>{turn.filed.message}</span>
-                  ) : null}
-                </div>
-                {turn.replayError ? (
-                  <p className={styles.softNote}>
-                    replay unavailable — {turn.replayError}
-                  </p>
-                ) : null}
-                {turn.phase.data.answer.error ? (
-                  <p className={styles.softNote}>{turn.phase.data.answer.error}</p>
-                ) : null}
-                {turn.phase.data.warnings.map((warning) => (
-                  <p key={warning} className={styles.softNote}>
-                    {warning}
-                  </p>
-                ))}
+              (() => {
+                const answer = turn.phase.data.answer;
+                const episodeId = turn.phase.data.episode_id;
+                const warnings = turn.phase.data.warnings;
+                const turnActions = actions.data?.actions.filter(
+                  (a: ActionItem) => episodeId != null && a.episode_id === episodeId,
+                );
+                return (
+                  <>
+                    <div className={styles.buddyAnswer}>
+                      <Orb size="sm" />
+                      <div className={styles.answer}>
+                        <p className={styles.answerText}>{answer.text}</p>
+                      </div>
+                    </div>
+                    <TraceRibbon
+                      steps={answer.steps}
+                      active={activeIndex}
+                      onPick={(stepIndex) => pick(turn.id, stepIndex)}
+                      actions={turnActions}
+                    />
+                    <div className={styles.metaRow}>
+                      <span>
+                        {answer.steps.length} step
+                        {answer.steps.length === 1 ? "" : "s"} ·{" "}
+                        {answer.llm_calls} llm call
+                        {answer.llm_calls === 1 ? "" : "s"}
+                        {answer.partial ? " · partial" : ""}
+                      </span>
+                      <span
+                        className={
+                          turn.remembered && episodeId
+                            ? styles.memSaved
+                            : styles.memOff
+                        }
+                        title={episodeId ?? undefined}
+                      >
+                        {turn.remembered
+                          ? episodeId
+                            ? "remembered"
+                            : "not saved"
+                          : "not remembered"}
+                      </span>
+                    </div>
+                    <div className={styles.fileRow}>
+                      {turn.filed.kind === "done" ? (
+                        <a
+                          className={styles.filedLink}
+                          href={turn.filed.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          filed as #{turn.filed.number} on GitHub ↗
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.fileBtn}
+                          disabled={turn.filed.kind === "busy"}
+                          onClick={() => {
+                            if (turn.phase.kind !== "done") return;
+                            void fileIssue(turn.id, turn.question, turn.phase.data.answer.text);
+                          }}
+                        >
+                          {turn.filed.kind === "busy" ? "filing…" : "File as GitHub issue"}
+                        </button>
+                      )}
+                      {turn.filed.kind === "error" ? (
+                        <span className={styles.fileError}>{turn.filed.message}</span>
+                      ) : null}
+                    </div>
+                    {turn.replayError ? (
+                      <p className={styles.softNote}>
+                        replay unavailable — {turn.replayError}
+                      </p>
+                    ) : null}
+                    {answer.error ? (
+                      <p className={styles.softNote}>{answer.error}</p>
+                    ) : null}
+                    {warnings.map((warning: string) => (
+                      <p key={warning} className={styles.softNote}>
+                        {warning}
+                      </p>
+                    ))}
 
-                {!stage && activeStep && isActiveTurn ? (
-                  <TraceDetail
-                    step={activeStep}
-                    queries={queriesForStep(turn.phase.data.answer, activeStep)}
-                    replay={activeReplay}
-                    onClose={() => setActive(null)}
-                  />
-                ) : null}
-              </>
+                    {!stage && activeStep && isActiveTurn ? (
+                      <TraceDetail
+                        step={activeStep}
+                        queries={queriesForStep(answer, activeStep)}
+                        replay={activeReplay}
+                        onClose={() => setActive(null)}
+                      />
+                    ) : null}
+                  </>
+                );
+              })()
             ) : null}
           </article>
         );

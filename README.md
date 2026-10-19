@@ -253,6 +253,26 @@ A streaming variant — `POST /api/ask/stream` (Server-Sent Events:
 `error`, heartbeats while a step runs) — lets a client render steps and
 answers as they happen; `docs/demo/m7b-stream.txt` is a live run end to end.
 
+## Actions (inc1 + inc3)
+
+The agent's reasoning ends in **recorded next steps** — not just answers. When the
+evidence warrants a concrete follow-up (review a target, change a file, add/run a
+test), the agent calls `act` and the action is persisted to the graph as a `Fact`
+with `kind="action"`, inheriting provenance (`PRODUCED` from the episode,
+`ABOUT` anchors) and supersession for free.
+
+Proposed actions appear in two places:
+
+- **Memory view → Actions section** — each proposed action has **Mark done** and
+  **Superseded** controls. Completing an action closes its validity window;
+  superseding it records a replacement linked via `SUPERSEDES`, so the
+  bi-temporal story stays visible.
+- **Ask trace ribbon** — when an ask emits an `act`, the ribbon shows a
+  proposed-action chip linking to the Memory Actions section.
+
+The closed set is deliberate: `review`, `change`, `test`. Anything else is
+rejected before it touches the graph — a guessed next step is worse than none.
+
 ## Memory (M3)
 
 Every `ask.py` run is persisted to the graph as an `agent-session` episode,
