@@ -67,7 +67,12 @@ def handle_event(cfg: SlackConfig, event: dict) -> None:
         question = _INTRO_QUESTION
     prompt = (
         "A community member wrote in Slack. Answer from the community "
-        f"knowledge graph (code + docs).\n\n{question}"
+        "knowledge graph (code + docs). If the message references a GitHub "
+        "issue number, an earlier discussion, or 'the issue', call `recall` "
+        "first with the issue number and short keyword variants — prior "
+        "community Q&A episodes carry the original issue url — before "
+        "concluding nothing is known.\n\n"
+        f"{question}"
     )
     try:
         answer = _run_agent(cfg.graph, prompt)

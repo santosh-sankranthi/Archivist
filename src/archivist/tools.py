@@ -24,6 +24,7 @@ Design contract (see DECISIONS.md D-010):
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -44,6 +45,52 @@ _DOC_STOPWORDS = frozenset(
         "when", "where", "which", "why", "with", "you", "your",
     }
 )
+
+
+# Recall keyword matching: chat phrasings ("hey can you please check ...")
+# lose their filler words so real keywords ("issue", "github", names) and
+# issue/PR numbers carry the search.
+_RECALL_STOPWORDS = _DOC_STOPWORDS | {
+    "check",
+    "hello",
+    "hey",
+    "hi",
+    "know",
+    "please",
+    "tell",
+    "thank",
+    "thanks",
+}
+
+# "issue 3", "isssue #3" (typo-tolerant), "PR 12", "pull request 7", "#7".
+_ISSUE_NUMBER = re.compile(
+    r"(?:i+s+u+e+s?|pull\s*requests?|prs?)\s*(?:no\.?|number)?\s*#?\s*(\d+)"
+    r"|#(\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def _recall_tokens(query: str, cap: int = 10) -> list[str]:
+    """Keyword tokens of a recall query (lowercase, order kept)."""
+    tokens: list[str] = []
+    for word in re.findall(r"[a-z0-9]+", query.lower()):
+        if len(word) < 3 or word in _RECALL_STOPWORDS or word in tokens:
+            continue
+        tokens.append(word)
+        if len(tokens) >= cap:
+            break
+    return tokens
+
+
+def _recall_issue_suffixes(query: str) -> list[str]:
+    """``/issues/N`` url suffixes for issue/PR numbers mentioned in a query."""
+    suffixes: list[str] = []
+    for match in _ISSUE_NUMBER.finditer(query):
+        number = match.group(1) or match.group(2)
+        suffix = f"/issues/{number}"
+        if number and suffix not in suffixes:
+            suffixes.append(suffix)
+    return suffixes[:5]
 
 
 def _clamp_depth(depth: int) -> int:
@@ -551,7 +598,11 @@ class RepoGraph:
         "what was true at T" (event time). Facts are never deleted, so an
         invalidated fact is still one query away. With no ``query`` string
         this lists the most recent memory — the "what did we do last time"
-        call.
+        call. A query matches facts by substring and sessions by keyword
+        tokens; issue/PR numbers ("issue 3", "#3") also match the ``url``
+        recorded on session episodes, episode rows carry that ``url`` so
+        answers can cite the original issue, and query results rank by
+        match strength (issue hits first) with newest as the tiebreak.
         """
         since = self._mark()
         limit = _clamp_limit(limit)
@@ -561,8 +612,14 @@ class RepoGraph:
             "as_of": as_of,
             "limit": limit,
         }
-        fact_params: dict[str, Any] = {"limit": limit}
-        episode_params: dict[str, Any] = {"limit": limit}
+        tokens = _recall_tokens(query) if query else []
+        issue_suffixes = _recall_issue_suffixes(query) if query else []
+        fact_params: dict[str, Any] = {"limit": limit, "tokens": tokens}
+        episode_params: dict[str, Any] = {
+            "limit": limit,
+            "tokens": tokens,
+            "issue_suffixes": issue_suffixes,
+        }
         if query:
             fact_params["query"] = query
             episode_params["query"] = query
@@ -589,7 +646,9 @@ class RepoGraph:
                    coalesce(f.valid_at, f.created_at) AS ts,
                    f.valid_at AS valid_at, f.invalid_at AS invalid_at,
                    f.created_at AS created_at, f.expired_at AS expired_at,
-                   collect(e.id) AS episode_ids, collect(e.kind) AS episode_kinds
+                   collect(e.id) AS episode_ids, collect(e.kind) AS episode_kinds,
+                   size([w IN $tokens WHERE
+                         toLower(coalesce(f.text, '')) CONTAINS w]) AS score
             ORDER BY coalesce(f.valid_at, f.created_at) DESC, f.id
             LIMIT $limit
             """,
@@ -598,10 +657,28 @@ class RepoGraph:
 
         episode_where: list[str] = []
         if query:
-            episode_where.append(
-                "(toLower(coalesce(e.question, '')) CONTAINS toLower($query)"
-                " OR toLower(coalesce(e.answer, '')) CONTAINS toLower($query))"
+            token_clause = (
+                "any(w IN $tokens WHERE"
+                " toLower(coalesce(e.question, '')) CONTAINS w"
+                " OR toLower(coalesce(e.answer, '')) CONTAINS w)"
             )
+            issue_clause = (
+                "any(sfx IN $issue_suffixes WHERE"
+                " coalesce(e.url, '') ENDS WITH sfx)"
+            )
+            if tokens and issue_suffixes:
+                episode_where.append(f"({token_clause} OR {issue_clause})")
+            elif tokens:
+                episode_where.append(token_clause)
+            elif issue_suffixes:
+                episode_where.append(issue_clause)
+            else:
+                episode_where.append(
+                    "(toLower(coalesce(e.question, ''))"
+                    " CONTAINS toLower($query)"
+                    " OR toLower(coalesce(e.answer, ''))"
+                    " CONTAINS toLower($query))"
+                )
         if as_of is not None:
             episode_where.append("coalesce(e.ts, e.created_at) <= $as_of")
         episode_filter = (
@@ -610,10 +687,20 @@ class RepoGraph:
         episodes = self._q(
             f"""
             MATCH (e:Episode){episode_filter}
+            WITH e,
+                 size([w IN $tokens WHERE
+                       toLower(coalesce(e.question, '')) CONTAINS w
+                       OR toLower(coalesce(e.answer, '')) CONTAINS w
+                     ]) AS token_score,
+                 size([sfx IN $issue_suffixes WHERE
+                       coalesce(e.url, '') ENDS WITH sfx]) AS issue_hits
             RETURN e.id AS id, e.kind AS kind, e.source AS source,
                    coalesce(e.ts, e.created_at) AS ts,
-                   e.question AS question, e.answer AS answer
-            ORDER BY coalesce(e.ts, e.created_at) DESC, e.id
+                   e.question AS question, e.answer AS answer,
+                   e.url AS url, e.channel AS channel, e.user AS user,
+                   e.author AS author,
+                   token_score + 100 * issue_hits AS score
+            ORDER BY score DESC, coalesce(e.ts, e.created_at) DESC, e.id
             LIMIT $limit
             """,
             episode_params,
@@ -637,7 +724,15 @@ class RepoGraph:
                 row["answer"] = row["answer"][:399] + "…"
                 truncated += 1
             rows.append(row)
-        rows.sort(key=lambda r: (-(r.get("ts") or 0), str(r.get("id") or "")))
+        # Best matches first (issue-url hits rank above keyword hits);
+        # newest as the tiebreak — the "newest first" rule for plain lists.
+        rows.sort(
+            key=lambda r: (
+                -(r.get("score") or 0),
+                -(r.get("ts") or 0),
+                str(r.get("id") or ""),
+            )
+        )
         rows = rows[:limit]
 
         if include_invalid and as_of is None:

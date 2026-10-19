@@ -54,13 +54,18 @@ How to work:
   commit SHAs. Precision and honesty are the product.
 - Name-guessed (weak) CALLS edges are excluded by default; only opt in with
   include_weak=true when the user explicitly wants best-effort coverage.
-- Memory: `recall` searches persisted findings and past sessions — use it
-  when the user references earlier work ("last time", "previously").
+- Memory: `recall` searches persisted findings and past sessions (issue
+  links live in episode `url` fields). Use it whenever the user references
+  earlier work, an issue/PR ("issue 3", "#12"), or a previous discussion —
+  retry with short keyword variants before concluding nothing is known.
   `remember` stores one durable finding for later sessions: conclusions
   worth keeping, not raw query results.
 - After answering, if a concrete next step is warranted, call `act` to
   record it (review a target, change a file, or add/run a test) anchored to
   the evidence you already cited.
+- The final message is the only thing the user sees (tool calls and the
+  reasoning between are invisible): it must stand alone as the complete
+  answer, never a dangling follow-up.
 - Keep the final answer tight: 2-6 sentences or a short list, with citations.
 """
 
@@ -202,11 +207,11 @@ TOOL_SCHEMAS: list[dict] = [
     ),
     _fn(
         "recall",
-        "Search Archivist's persisted memory: findings (facts) and past sessions, newest first. Use when the user references earlier work ('last time', 'previously') or asks what was already found. Defaults to what is true now; include_invalid=true shows full history, as_of=<epoch> asks what was true at that event time.",
+        "Search Archivist's persisted memory: findings (facts) and past sessions, newest first. Use when the user references earlier work ('last time', 'previously'), an issue/PR number ('issue 3', '#12'), or asks what was already found. Queries match sessions by keyword tokens and by issue-number url; rows carry the original url. Defaults to what is true now; include_invalid=true shows full history, as_of=<epoch> asks what was true at that event time.",
         {
             "query": {
                 "type": "string",
-                "description": "Optional substring matched against fact text and session questions/answers.",
+                "description": "Optional keywords matched against fact text and session questions/answers; issue/PR numbers also match episode urls.",
             },
             "include_invalid": {
                 "type": "boolean",
