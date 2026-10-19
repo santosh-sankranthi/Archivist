@@ -35,10 +35,17 @@ pull() {
     echo "::error::${target} is not a descendant of $(git rev-parse --short HEAD) — not a fast-forward; refusing."
     exit 1
   fi
-  local old new
+  local old new prev
   old="$(git rev-parse HEAD)"
+  prev="$(cat "$STATE/deployed_sha" 2>/dev/null || true)"
   git merge --ff-only -q "$target"
   new="$(git rev-parse HEAD)"
+  # A commit created on this box is already HEAD here: fall back to the
+  # previous deployed sha so rebuild decisions still see its changes.
+  if [ "$old" = "$new" ] && [ -n "$prev" ] \
+     && git cat-file -e "$prev^{commit}" 2>/dev/null; then
+    old="$prev"
+  fi
   git diff --name-only "$old" "$new" > "$STATE/changed_files"
   echo "$new" > "$STATE/deployed_sha"
   log "updated ${old:0:9} -> ${new:0:9}: $(git log -1 --pretty=%s)"
