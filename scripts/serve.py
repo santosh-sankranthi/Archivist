@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
@@ -39,6 +40,11 @@ load_dotenv(ROOT / ".env")
 from archivist.accounts import AccountStore
 from archivist.llm import LLMResponse, ToolCall
 from archivist.webapp import WebApp, make_server
+
+# Surface archivist.* INFO logs (Slack intake, answers) in the journal;
+# everything else stays quiet unless it warns.
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("archivist").setLevel(logging.INFO)
 
 
 def _split_demo_chunks(text: str, pieces: int = 5) -> list[str]:
